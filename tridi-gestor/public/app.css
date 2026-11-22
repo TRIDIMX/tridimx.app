@@ -1028,3 +1028,12 @@ body.sb-collapsed .sb-badge{position:absolute;top:4px;right:6px;min-width:16px;h
 [data-msync].spin svg{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:1100px){.mail{grid-template-columns:220px minmax(0,1fr)}.mail-read{display:none}.mail.reading .mail-list{display:none}.mail.reading .mail-read{display:flex}.mail-back{display:inline-grid;float:left;margin-right:8px}}
 @media (max-width:760px){.mail{grid-template-columns:1fr}.mail-groups{max-height:180px}.mail.reading .mail-groups{display:none}}
+
+/* ---------- TRIDI MX: Firma de correo ---------- */
+.sig-prev{border:1px solid var(--line);border-radius:12px;background:#fff;padding:16px;max-height:340px;overflow:auto}
+.sig-mail p{margin:0 0 6px;color:var(--text-2);font-size:13px}
+.sig-box{margin-top:10px;font-size:13px;line-height:1.45;color:var(--navy);transition:opacity .2s}
+.sig-box img{display:block;max-width:100%;height:auto;margin-top:6px}
+.sig-compose{margin-top:8px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--surface-2)}
+.sig-on{display:flex!important;align-items:center;gap:8px;font-size:12.5px!important;font-weight:700!important;text-transform:none!important;letter-spacing:0!important;color:var(--text)!important}
+.sig-on input{width:16px;height:16px;accent-color:var(--teal-d)}

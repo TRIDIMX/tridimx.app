@@ -2923,6 +2923,50 @@ async function openMail(id) {
   };
 }
 const fileToB64 = f => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(f); });
+/* Firma de correo por usuario (GIF animado / PNG / JPG + texto) */
+const fileToDataURL = f => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(f); });
+async function signatureEditor(username, displayName, onDone) {
+  const mine = username === ME.username, path = '/signature' + (mine ? '' : '/' + encodeURIComponent(username));
+  let cur = null;
+  try { cur = await mailApi('GET', path); } catch (e) { return toast(e.message, true); }
+  let img = null, dropImage = false;
+  const imgSrc = () => img || (cur && cur.hasImage && !dropImage ? `/api/mail${path}/image?t=${Date.parse(cur.updated) || 0}` : '');
+  openModal({
+    title: mine ? 'Mi firma de correo' : `Firma de correo · ${displayName || username}`, size: 'wide',
+    body: `<p class="meta-line" style="margin-top:0">Se agrega al final de cada correo que ${mine ? 'envíes' : 'envíe este usuario'} desde el Gestor. Acepta <b>GIF animado</b>, PNG o JPG de hasta 1.5 MB; la imagen va incrustada en el correo.</p>
+      <div class="grid2">
+        <div class="field span2"><label>Texto (opcional, va arriba de la imagen)</label><textarea class="input" name="stext" rows="3" placeholder="Luis Gómez\nTRIDI MX · 55 7335 2169">${esc(cur ? cur.text : '')}</textarea></div>
+        <div class="field"><label>Imagen de la firma</label><div style="display:flex;gap:8px;flex-wrap:wrap"><label class="btn sm">${ICON.camera}<span>Elegir GIF / imagen</span><input type="file" id="sFile" accept="image/gif,image/png,image/jpeg" hidden></label><button type="button" class="btn sm ghost" id="sDrop">${ICON.x}Quitar imagen</button></div></div>
+        <div class="field"><label>Ancho en el correo: <b id="sWv">${cur ? cur.width : 400}</b> px</label><input type="range" id="sW" min="120" max="650" step="10" value="${cur ? cur.width : 400}"></div>
+        <div class="field span2"><label>Vista previa</label><div class="sig-prev" id="sPrev"></div></div>
+      </div>`,
+    foot: `${cur ? `<button class="btn danger left" data-sdel>${ICON.trash}Eliminar firma</button>` : ''}<button class="btn" data-x>Cancelar</button><button class="btn primary" data-ssave>${ICON.save}Guardar firma</button>`,
+    onMount(m, close) {
+      const t = m.querySelector('[name=stext]'), w = m.querySelector('#sW');
+      const draw = () => {
+        m.querySelector('#sWv').textContent = w.value;
+        const src = imgSrc();
+        m.querySelector('#sPrev').innerHTML = `<div class="sig-mail"><p>Hola, te comparto la propuesta…</p><div class="sig-box">${esc(t.value).replace(/\n/g, '<br>')}${src ? `<img src="${src}" style="width:${w.value}px">` : ''}</div></div>`;
+        m.querySelector('#sDrop').hidden = !src;
+      };
+      draw();
+      t.addEventListener('input', draw); w.addEventListener('input', draw);
+      m.querySelector('#sFile').addEventListener('change', async e => {
+        const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+        if (!/^image\/(gif|png|jpeg)$/.test(f.type)) return toast('Usa un GIF, PNG o JPG', true);
+        if (f.size > 1.5 * 1048576) return toast('La imagen no debe pasar de 1.5 MB', true);
+        img = await fileToDataURL(f); dropImage = false; draw();
+      });
+      m.querySelector('#sDrop').onclick = () => { img = null; dropImage = true; draw(); };
+      m.querySelector('[data-ssave]').onclick = async () => {
+        try { await mailApi('PUT', path, { text: t.value.trim(), width: +w.value, image: img || undefined, dropImage }); close(); toast('Firma guardada'); onDone && onDone(); }
+        catch (e) { toast(e.message, true); }
+      };
+      const del = m.querySelector('[data-sdel]');
+      if (del) del.onclick = async () => { if (!await confirmDialog('Eliminar firma', '¿Eliminar la firma de correo?')) return; try { await mailApi('DELETE', path); close(); toast('Firma eliminada'); onDone && onDone(); } catch (e) { toast(e.message, true); } };
+    }
+  });
+}
 /* Redactar: { to, cc, subject, text, replyTo, quoteHtml, attachments:[{filename, contentType, data}] } */
 function composeMail(o) {
   let atts = [...(o.attachments || [])];
@@ -2934,7 +2978,9 @@ function composeMail(o) {
       <datalist id="mailClients">${Store.data.clientes.filter(c => c.email).flatMap(c => String(c.email).split(/[,;\s]+/).filter(Boolean).map(e => `<option value="${esc(e)}">${esc(c.nombre)}</option>`)).join('')}</datalist>
       <div class="field span2"><label>CC</label><input class="input" name="cc" value="${esc(o.cc || '')}"></div>
       <div class="field span2"><label>Asunto</label><input class="input" name="subject" value="${esc(o.subject || '')}"></div>
-      <div class="field span2"><label>Mensaje</label><textarea class="input" name="text" rows="9">${esc(o.text || '')}</textarea>${o.quoteHtml ? '<small class="meta-line">Se incluye el mensaje original debajo.</small>' : ''}</div>
+      <div class="field span2"><label>Mensaje</label><textarea class="input" name="text" rows="9">${esc(o.text || '')}</textarea>
+        <div class="sig-compose" id="cSig"><span class="meta-line">Cargando firma…</span></div>
+        ${o.quoteHtml ? '<small class="meta-line">Se incluye el mensaje original debajo.</small>' : ''}</div>
       <div class="field span2"><label>Adjuntos <small class="meta-line">(máx. 20 MB en total)</small></label>
         <div class="mail-catts" id="cAtts"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><label class="btn sm">${ICON.plus}<span>Adjuntar archivo</span><input type="file" id="cFile" multiple hidden></label>
@@ -2943,6 +2989,18 @@ function composeMail(o) {
     foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-send>${ICON.right}Enviar</button>`,
     onMount(m, close) {
       const f = n => m.querySelector(`[name=${n}]`);
+      let useSig = false;
+      const drawSig = async () => {
+        const box = m.querySelector('#cSig');
+        let sg = null; try { sg = await mailApi('GET', '/signature'); } catch (_) {}
+        if (!sg) { box.innerHTML = `<span class="meta-line">Sin firma. <button type="button" class="btn sm ghost" data-mksig>${ICON.edit}Crear mi firma</button></span>`; useSig = false; return; }
+        useSig = true;
+        box.innerHTML = `<label class="sig-on"><input type="checkbox" id="cSigOn" checked> Incluir mi firma <button type="button" class="btn sm ghost" data-mksig>${ICON.edit}Editar</button></label>
+          <div class="sig-box">${esc(sg.text || '').replace(/\n/g, '<br>')}${sg.hasImage ? `<img src="/api/mail/signature/image?t=${Date.parse(sg.updated) || 0}" style="width:${Math.min(sg.width, 420)}px">` : ''}</div>`;
+        m.querySelector('#cSigOn').onchange = e => { useSig = e.target.checked; box.querySelector('.sig-box').style.opacity = useSig ? 1 : .35; };
+      };
+      drawSig();
+      m.querySelector('#cSig').addEventListener('click', e => { if (e.target.closest('[data-mksig]')) signatureEditor(ME.username, null, drawSig); });
       const drawA = () => { m.querySelector('#cAtts').innerHTML = atts.map((a, i) => `<span class="chip">📎 ${esc(a.filename)} <small>${fmtBytes(a.data.length * 0.75)}</small><button type="button" class="icon-btn" data-arm="${i}" style="width:22px;height:22px">${ICON.x}</button></span>`).join(''); };
       drawA();
       m.querySelector('#cAtts').addEventListener('click', e => { const b = e.target.closest('[data-arm]'); if (b) { atts.splice(+b.dataset.arm, 1); drawA(); } });
@@ -2961,7 +3019,7 @@ function composeMail(o) {
         if (!f('subject').value.trim() && !await confirmDialog('Sin asunto', '¿Enviar el correo sin asunto?', 'Enviar', false)) return;
         const btn = m.querySelector('[data-send]'); btn.disabled = true; btn.lastChild.textContent = 'Enviando…';
         try {
-          await mailApi('POST', '/send', { to: f('to').value, cc: f('cc').value, subject: f('subject').value, text: f('text').value, replyTo: o.replyTo || null, quoteHtml: o.quoteHtml || null, attachments: atts });
+          await mailApi('POST', '/send', { to: f('to').value, cc: f('cc').value, subject: f('subject').value, text: f('text').value, replyTo: o.replyTo || null, quoteHtml: o.quoteHtml || null, attachments: atts, firma: useSig });
           close(); toast('Correo enviado'); if (current === 'correo') setTimeout(() => refreshMail(true), 1500);
         } catch (e) { toast(e.message, true); btn.disabled = false; btn.lastChild.textContent = 'Enviar'; }
       };
@@ -3574,6 +3632,7 @@ async function renderUsuarios(stage) {
       const u = USERS_CACHE.find(x => x.username === mb.dataset.umore);
       popMenu(mb, [
         { label: 'Editar', icon: 'edit', run: () => userForm(u) },
+        { label: 'Firma de correo', icon: 'inbox', run: () => signatureEditor(u.username, u.name) },
         { label: u.active ? 'Desactivar' : 'Activar', icon: 'lock', run: () => toggleUser(u) },
         '-',
         { label: 'Eliminar', icon: 'trash', danger: true, disabled: u.username === ME.username, run: () => deleteUser(u) }
@@ -3779,6 +3838,7 @@ function renderUserChip() {
 function userMenu(anchor) {
   popMenu(anchor, [
     { header: `<b>${esc(ME.name || ME.username)}</b><small>@${esc(ME.username)} · ${esc(ROLE_LABEL[ME.role] || '')}</small>` },
+    ...(can('correo') ? [{ label: 'Mi firma de correo', icon: 'edit', run: () => signatureEditor(ME.username) }] : []),
     ...(isAdmin() ? [{ label: 'Administrar usuarios', icon: 'shield', run: () => go('usuarios') }, '-'] : []),
     { label: 'Cambiar de usuario', icon: 'swap', run: () => guardBudget(() => logout('Inicia sesión con otra cuenta.')) },
     { label: 'Cerrar sesión', icon: 'logout', danger: true, run: () => guardBudget(() => logout('Sesión cerrada.')) }

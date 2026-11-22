@@ -1,6 +1,6 @@
 {
   "name": "tridi-gestor",
-  "version": "6.1.0",
+  "version": "6.2.0",
   "description": "Gestor de operación TRIDI MX (base: dashboard AGIS v4.3)",
   "main": "server.js",
   "private": true,

@@ -215,6 +215,28 @@ module.exports = function createMail(store, getDb) {
     q.flags.run(flag === 'seen' ? (on ? 1 : 0) : row.seen, flag === 'flagged' ? (on ? 1 : 0) : row.flagged, id);
   }
 
+  /* ---- Firma de correo por usuario (kv sig:<usuario>) ---- */
+  const SIG_MAX = 1.5 * 1024 * 1024;
+  const sigKey = u => 'sig:' + lc(u);
+  const getSig = u => store.get(sigKey(u), null);
+  function saveSig(u, b) {
+    if (b === null || b.remove) { store.put(sigKey(u), null); return null; }
+    const prev = getSig(u) || {};
+    const out = { text: String(b.text || '').slice(0, 600), width: Math.max(80, Math.min(700, +b.width || prev.width || 400)), updated: new Date().toISOString() };
+    if (b.image) {
+      const m = /^data:image\/(gif|png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(b.image));
+      if (!m) throw Object.assign(new Error('La imagen debe ser GIF, PNG o JPG'), { code: 400 });
+      const buf = Buffer.from(m[2], 'base64');
+      if (buf.length > SIG_MAX) throw Object.assign(new Error('La imagen de la firma no debe pasar de 1.5 MB'), { code: 413 });
+      const magic = { gif: buf.slice(0, 4).toString() === 'GIF8', png: buf.slice(0, 4).toString('hex') === '89504e47', jpeg: buf.slice(0, 2).toString('hex') === 'ffd8' }[m[1]];
+      if (!magic) throw Object.assign(new Error('El archivo no coincide con su formato'), { code: 400 });
+      out.mime = 'image/' + m[1]; out.data = m[2];
+    } else if (!b.dropImage && prev.data) { out.mime = prev.mime; out.data = prev.data; }
+    if (!out.text && !out.data) { store.put(sigKey(u), null); return null; }
+    store.put(sigKey(u), out); return out;
+  }
+  const sigPublic = s => s ? { text: s.text, width: s.width, hasImage: !!s.data, mime: s.mime || null, updated: s.updated } : null;
+
   /* ---- Envío ---- */
   const transport = () => nodemailer.createTransport({ host: cfg.smtpHost, port: cfg.smtpPort, secure: cfg.smtpPort === 465, auth: { user: cfg.user, pass: cfg.pass }, tls: cfg.insecure ? { rejectUnauthorized: false } : undefined });
   const cleanList = v => [].concat(v || []).join(',').split(/[,;]+/).map(s => s.trim()).filter(Boolean);
@@ -227,12 +249,17 @@ module.exports = function createMail(store, getDb) {
     if (bad) throw Object.assign(new Error('Correo inválido: ' + bad), { code: 400 });
     const subject = String(b.subject || '').slice(0, 300), text = String(b.text || '');
     const esc = s => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-    const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#1b2d4f">${esc(text).replace(/\n/g, '<br>')}</div>` + (b.quoteHtml ? `<br><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex;color:#555">${String(b.quoteHtml).replace(/<script[\s\S]*?<\/script>/gi, '')}</blockquote>` : '');
+    const sig = b.firma === false ? null : getSig(me.username);
+    const sigCid = sig && sig.data ? `firma-${lc(me.username).replace(/[^a-z0-9]/g, '')}@tridimx` : null;
+    const sigHtml = sig ? `<div style="margin-top:18px;font-family:Arial,sans-serif;font-size:13px;line-height:1.45;color:#1b2d4f">${sig.text ? esc(sig.text).replace(/\n/g, '<br>') : ''}${sigCid ? `${sig.text ? '<br>' : ''}<img src="cid:${sigCid}" width="${sig.width}" alt="${esc(cfg.fromName)}" style="max-width:100%;height:auto;border:0;display:block;margin-top:6px">` : ''}</div>` : '';
+    const html = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#1b2d4f">${esc(text).replace(/\n/g, '<br>')}</div>` + sigHtml + (b.quoteHtml ? `<br><blockquote style="margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex;color:#555">${String(b.quoteHtml).replace(/<script[\s\S]*?<\/script>/gi, '')}</blockquote>` : '');
     const attachments = (Array.isArray(b.attachments) ? b.attachments : []).slice(0, 10).map(a => ({ filename: String(a.filename || 'adjunto').slice(0, 120), content: Buffer.from(String(a.data || ''), 'base64'), contentType: a.contentType || 'application/octet-stream' }));
     if (attachments.reduce((s, a) => s + a.content.length, 0) > 20 * 1024 * 1024) throw Object.assign(new Error('Los adjuntos superan 20 MB'), { code: 413 });
     let inReplyTo, references;
     if (b.replyTo) { const orig = q.get.get(String(b.replyTo)); if (orig && orig.msgid) { inReplyTo = orig.msgid; references = [orig.refs, orig.msgid].filter(Boolean).join(' '); } }
-    const mail = { from: { name: cfg.fromName, address: cfg.user }, to, cc, bcc, subject, text, html, attachments, inReplyTo, references, headers: { 'X-Enviado-Por': `Gestor TRIDI MX (${me.username})` } };
+    if (sigCid) attachments.push({ filename: 'firma.' + sig.mime.split('/')[1].replace('jpeg', 'jpg'), content: Buffer.from(sig.data, 'base64'), contentType: sig.mime, cid: sigCid, contentDisposition: 'inline' });
+    const textFull = sig && sig.text ? `${text}\n\n-- \n${sig.text}` : text;
+    const mail = { from: { name: cfg.fromName, address: cfg.user }, to, cc, bcc, subject, text: textFull, html, attachments, inReplyTo, references, headers: { 'X-Enviado-Por': `Gestor TRIDI MX (${me.username})` } };
     const raw = await new MailComposer(mail).compile().build();
     await transport().sendMail({ envelope: { from: cfg.user, to: [...to, ...cc, ...bcc].map(a => a.replace(/^.*<([^>]+)>$/, '$1')) }, raw });
     // copia en Enviados (Hostinger no la guarda sola al enviar por SMTP)
@@ -248,6 +275,20 @@ module.exports = function createMail(store, getDb) {
     const route = p.slice('/api/mail'.length), url = new URL(req.url, 'http://x');
     try {
       if (route === '/status' && method === 'GET') { h.send(req, res, 200, status); return true; }
+      let sm = /^\/signature(?:\/([a-z0-9._-]+))?(\/image)?$/.exec(route);
+      if (sm) {
+        if (sm[1] === 'image' && !sm[2]) { sm[1] = undefined; sm[2] = '/image'; }
+        const who = lc(sm[1] || me.username);
+        if (who !== lc(me.username) && me.role !== 'admin') { h.send(req, res, 403, { error: 'Solo un administrador puede editar la firma de otro usuario' }); return true; }
+        if (sm[2] && method === 'GET') {
+          const sg = getSig(who); if (!sg || !sg.data) { h.send(req, res, 404, { error: 'Sin imagen' }); return true; }
+          const buf = Buffer.from(sg.data, 'base64');
+          res.writeHead(200, h.headers(req, { 'Content-Type': sg.mime, 'Cache-Control': 'private, no-cache', 'Content-Length': buf.length })); res.end(buf); return true;
+        }
+        if (method === 'GET') { h.send(req, res, 200, sigPublic(getSig(who))); return true; }
+        if (method === 'PUT') { h.send(req, res, 200, sigPublic(saveSig(who, (await h.readBody(req, 3 * 1024 * 1024)) || {}))); return true; }
+        if (method === 'DELETE') { saveSig(who, null); h.send(req, res, 200, { ok: true }); return true; }
+      }
       if (!enabled) { h.send(req, res, 400, { error: 'Correo no configurado: define MAIL_USER y MAIL_PASS en Easypanel' }); return true; }
       if (route === '/sync' && method === 'POST') { h.send(req, res, 200, await sync()); return true; }
       if (route === '/groups' && method === 'GET') { h.send(req, res, 200, groups()); return true; }

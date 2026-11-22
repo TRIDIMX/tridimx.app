@@ -1,4 +1,12 @@
-# TRIDI MX · Gestor (v6.1 · Correo)
+# TRIDI MX · Gestor (v6.2)
+
+## Novedades v6.2
+- **Firma de correo por usuario**: texto + imagen (GIF animado, PNG o JPG, máx. 1.5 MB) y ancho ajustable.
+  Cada usuario la edita en su menú → «Mi firma de correo»; el admin edita la de cualquiera en Usuarios → «…» → «Firma de correo».
+  Al redactar se muestra con la casilla «Incluir mi firma»; la imagen va incrustada (CID), no como liga externa.
+- `favicon.ico` para navegadores que lo buscan en la raíz.
+
+# v6.1 · Correo
 
 ## Novedades v6.1 — Correo (Hostinger)
 - Módulo **Correo** (permiso `correo`): bandeja de `contacto@tridimx.tech` agrupada por cliente
