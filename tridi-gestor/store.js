@@ -40,7 +40,7 @@ module.exports = function openStore(DATA_DIR) {
   }
 
   return {
-    file, get, put, tx, prefix, isEmpty, backup,
+    file, raw: sql, get, put, tx, prefix, isEmpty, backup,
     sessions: {
       save: (sid, username, exp) => sPut.run(sid, username, exp),
       remove: sid => sDel.run(sid),

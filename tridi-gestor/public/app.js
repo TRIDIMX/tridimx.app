@@ -112,8 +112,8 @@ const tintStyle = k => { const p = pal(k); return p.bg ? `--pbg:${p.bg};--pbd:${
 const COL_DEFAULTS = ['gris', 'azul', 'ambar', 'verde', 'morado', 'turquesa', 'rosa', 'marino'];
 
 /* ================= Sesión / API ================= */
-const ALL_MODS = ['clientes', 'proyectos', 'actividades', 'presupuesto', 'cobranza', 'fiscal', 'produccion', 'taller', 'monitor'];
-const MOD_LABEL = { clientes: 'Clientes', proyectos: 'Proyectos', actividades: 'Actividades', presupuesto: 'Presupuesto', cobranza: 'Cobranza', fiscal: 'Fiscal', produccion: 'Control Producción', taller: 'Pantalla del taller', monitor: 'Monitor' };
+const ALL_MODS = ['clientes', 'proyectos', 'actividades', 'correo', 'presupuesto', 'cobranza', 'fiscal', 'produccion', 'taller', 'monitor'];
+const MOD_LABEL = { clientes: 'Clientes', proyectos: 'Proyectos', actividades: 'Actividades', correo: 'Correo', presupuesto: 'Presupuesto', cobranza: 'Cobranza', fiscal: 'Fiscal', produccion: 'Control Producción', taller: 'Pantalla del taller', monitor: 'Monitor' };
 let ME = null;
 const isAdmin = () => !!ME && ME.role === 'admin';
 const can = m => !!ME && (ME.role === 'admin' || (ME.modules || []).includes(m));
@@ -371,6 +371,7 @@ function download(filename, blob) {
 const MODULES = [
   { k: 'clientes', t: 'Clientes', s: 'Cartera y saldos', icon: 'users', hue: 'h-indigo', render: renderClientes },
   { k: 'actividades', t: 'Actividades', s: 'Equipo en campo', icon: 'kanban', hue: 'h-teal', render: renderActividades },
+  { k: 'correo', t: 'Correo', s: 'Bandeja por cliente', icon: 'inbox', hue: 'h-indigo', render: renderCorreo },
   { k: 'presupuesto', t: 'Presupuesto', s: 'Propuestas comerciales', icon: 'cash', hue: 'h-green', render: renderPresupuesto },
   { k: 'proyectos', t: 'Proyectos', s: 'Avance y seguimiento', icon: 'folder', hue: 'h-slate', render: renderProyectos },
   { k: 'cobranza', t: 'Cobranza', s: 'Pagos, anticipos y saldos', icon: 'wallet', hue: 'h-amber', render: renderCobranza },
@@ -385,7 +386,7 @@ let current = null;
 /* ---------- Barra lateral ---------- */
 const NAV_GROUPS = [
   { t: null, items: ['__home'] },
-  { t: 'Operación', items: ['clientes', 'proyectos', 'actividades'] },
+  { t: 'Operación', items: ['clientes', 'proyectos', 'actividades', 'correo'] },
   { t: 'Finanzas', items: ['presupuesto', 'cobranza', 'fiscal'] },
   { t: 'Taller', items: ['produccion', 'taller'] },
   { t: 'Administración', items: ['monitor', 'usuarios'] }
@@ -402,6 +403,7 @@ function buildBand() { // nombre conservado: construye la barra lateral
     return html ? `<div class="sb-group">${g.t ? `<div class="sb-gt"><span>${esc(g.t)}</span></div>` : ''}${html}</div>` : '';
   }).join('');
   markActive(); cobBadge();
+  if (can('correo')) fetch('/api/mail/groups', { credentials: 'same-origin' }).then(r => r.ok ? r.json() : null).then(g => { if (g) mailBadge(g.unread); }).catch(() => {});
   if (window._sbBound) return; window._sbBound = true;
   $('#sbNav').addEventListener('click', e => {
     const b = e.target.closest('.sb-item'); if (!b) return;
@@ -433,7 +435,7 @@ function go(k, opts = {}) {
   if (m && !allowed(m)) { toast('No tienes acceso a ese módulo', true); m = null; }
   if (!m || m.k !== 'monitor') { document.body.classList.remove('tv'); clearInterval(monTimer); }
   $('#stage').classList.toggle('wide', !!m && m.k === 'actividades');
-  $('#stage').classList.toggle('xwide', !!m && (m.k === 'monitor' || m.k === 'produccion'));
+  $('#stage').classList.toggle('xwide', !!m && ['monitor', 'produccion', 'correo'].includes(m.k));
   if (m && m.k === 'proyectos' && current !== 'proyectos' && !opts.keepView) { /* conserva la vista */ }
   if (popClose) popClose();
   if (!m) {
@@ -2773,6 +2775,213 @@ function exportCobranza() {
   download(`cobranza-tridi-${todayISO()}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8' }));
 }
 
+/* ================= CORREO (Hostinger) ================= */
+const MS = { group: 'all', dir: 'all', q: '', sel: null, groups: null, items: [], more: false, status: null, timer: null };
+async function mailApi(method, path, body) {
+  const r = await fetch('/api/mail' + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { sessionExpired(); throw new Error('Sesión expirada'); }
+  if (!r.ok) throw new Error(d.error || 'Error de correo');
+  return d;
+}
+const mailWhen = ts => { const d = new Date(ts), t = new Date(); return d.toDateString() === t.toDateString() ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${pad(d.getDate())} ${MES[d.getMonth()]}${d.getFullYear() !== t.getFullYear() ? ' ' + d.getFullYear() : ''}`; };
+const fmtBytes = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+function renderCorreo(stage) {
+  stage.innerHTML = `
+  <section class="mail" id="mail">
+    <aside class="mail-groups">
+      <div class="mail-gh"><button class="btn primary" data-mcompose style="flex:1;justify-content:center">${ICON.edit}Redactar</button><button class="icon-btn" data-msync title="Sincronizar">${ICON.reset}</button></div>
+      <div class="mail-status" id="mStatus"></div>
+      <div id="mGroups" class="mail-glist"></div>
+    </aside>
+    <div class="mail-list">
+      <div class="mail-lh">
+        <div class="search">${ICON.search}<input class="input" id="mSearch" placeholder="Buscar asunto, remitente…" value="${esc(MS.q)}"></div>
+        <div class="seg" id="mDir"><button data-mdir="all">Todos</button><button data-mdir="unread">No leídos</button><button data-mdir="in">Recibidos</button><button data-mdir="out">Enviados</button></div>
+      </div>
+      <div id="mItems" class="mail-items"></div>
+    </div>
+    <div class="mail-read" id="mRead"><div class="empty" style="padding:60px 20px">${ICON.inbox}<b>Selecciona un correo</b>Los correos se agrupan por cliente según su correo registrado en Clientes.</div></div>
+  </section>`;
+  const root = $('#mail');
+  $('#mSearch').addEventListener('input', debounce(e => { MS.q = e.target.value; loadMailList(); }, 220));
+  root.addEventListener('click', e => {
+    const g = e.target.closest('[data-mgroup]'); if (g) { MS.group = g.dataset.mgroup; drawMailGroups(); loadMailList(); return; }
+    const d = e.target.closest('[data-mdir]'); if (d) { MS.dir = d.dataset.mdir; loadMailList(); return; }
+    const it = e.target.closest('[data-mid]'); if (it) return openMail(it.dataset.mid);
+    if (e.target.closest('[data-mcompose]')) return composeMail({});
+    if (e.target.closest('[data-msync]')) return syncMail(true);
+    if (e.target.closest('[data-mmore]')) return loadMailList(true);
+  });
+  initMail();
+}
+async function initMail() {
+  try { MS.status = await mailApi('GET', '/status'); } catch (e) { MS.status = { enabled: false, error: e.message }; }
+  drawMailStatus();
+  if (!MS.status.enabled) {
+    $('#mItems').innerHTML = `<div class="empty" style="padding:40px 20px">${ICON.lock}<b>Correo sin configurar</b>Agrega en Easypanel las variables <code>MAIL_USER</code> (ej. contacto@tridimx.tech) y <code>MAIL_PASS</code>, y vuelve a desplegar.</div>`;
+    $('#mGroups').innerHTML = ''; return;
+  }
+  await refreshMail();
+  clearInterval(MS.timer);
+  MS.timer = setInterval(() => { if (current !== 'correo') return clearInterval(MS.timer); refreshMail(true); }, 60e3);
+}
+function drawMailStatus() {
+  const s = MS.status || {}, el = $('#mStatus'); if (!el) return;
+  el.innerHTML = s.enabled ? `<span class="${s.error ? 'bad' : ''}">${esc(s.user)}</span><small>${s.error ? esc(s.error) : s.syncing ? 'Sincronizando…' : s.lastSync ? 'Actualizado ' + timeAgo(s.lastSync) : 'Conectando…'}</small>` : '';
+}
+async function refreshMail(silent) {
+  try {
+    const [st, gr] = await Promise.all([mailApi('GET', '/status'), mailApi('GET', '/groups')]);
+    MS.status = st; MS.groups = gr; drawMailStatus(); drawMailGroups(); mailBadge(gr.unread);
+    await loadMailList(false, silent);
+  } catch (e) { if (!silent) toast(e.message, true); }
+}
+async function syncMail(manual) {
+  const b = $('[data-msync]'); if (b) b.classList.add('spin');
+  try { const r = await mailApi('POST', '/sync'); if (manual) toast(r.ok ? (r.nuevos ? `${r.nuevos} correo${r.nuevos > 1 ? 's' : ''} nuevo${r.nuevos > 1 ? 's' : ''}` : 'Sin correos nuevos') : r.error, !r.ok); await refreshMail(true); }
+  catch (e) { toast(e.message, true); }
+  finally { if (b) b.classList.remove('spin'); }
+}
+function mailBadge(n) {
+  const el = $('.sb-item[data-mod=correo]'); if (!el) return;
+  let bd = el.querySelector('.sb-badge.info');
+  if (!n) { if (bd) bd.remove(); return; }
+  if (!bd) { bd = document.createElement('span'); bd.className = 'sb-badge info'; el.appendChild(bd); }
+  bd.textContent = n > 99 ? '99+' : n;
+}
+function drawMailGroups() {
+  const el = $('#mGroups'); if (!el || !MS.groups) return;
+  const g = MS.groups.groups;
+  const item = x => `<button class="mail-g ${MS.group === x.key ? 'on' : ''}" data-mgroup="${esc(x.key)}"><span class="mg-ico t-${x.type}">${x.type === 'cliente' ? ICON.user : x.type === 'dominio' ? ICON.building : x.type === 'sin' ? ICON.inbox : ICON.inbox}</span><span class="mg-l">${esc(x.label)}</span>${x.unread ? `<b class="mg-n">${x.unread}</b>` : `<small>${x.count}</small>`}</button>`;
+  const sec = (t, list) => list.length ? `<div class="mail-gt">${t}</div>${list.map(item).join('')}` : '';
+  el.innerHTML = item({ key: 'all', label: 'Todos los correos', type: 'all', count: MS.groups.total, unread: MS.groups.unread })
+    + sec('Clientes', g.filter(x => x.type === 'cliente'))
+    + sec('Otros dominios', g.filter(x => x.type === 'dominio'))
+    + sec('Sin asignar', g.filter(x => x.type === 'sin'));
+}
+async function loadMailList(more, silent) {
+  const el = $('#mItems'); if (!el) return;
+  $$('#mDir button').forEach(b => b.classList.toggle('on', b.dataset.mdir === MS.dir));
+  const qs = new URLSearchParams({ group: MS.group, dir: MS.dir, q: MS.q, limit: 60 });
+  if (more && MS.items.length) qs.set('before', MS.items[MS.items.length - 1].date);
+  try {
+    const r = await mailApi('GET', '/list?' + qs);
+    MS.items = more ? [...MS.items, ...r.items] : r.items; MS.more = r.more;
+  } catch (e) { if (!silent) toast(e.message, true); return; }
+  el.innerHTML = MS.items.length ? MS.items.map(m => {
+    const who = m.dir === 'out' ? 'Para: ' + (m.to[0] ? (m.to[0].name || m.to[0].address) : '—') : (m.from.name || m.from.address);
+    return `<button class="mail-it ${m.seen || m.dir === 'out' ? '' : 'unread'} ${MS.sel === m.id ? 'on' : ''}" data-mid="${esc(m.id)}">
+      <span class="mi-top"><b>${esc(who)}</b><small>${mailWhen(m.date)}</small></span>
+      <span class="mi-sub">${m.dir === 'out' ? `<span class="mi-out">${ICON.right.replace('width="20" height="20"', 'width="12" height="12"')}</span>` : ''}${esc(m.subject || '(sin asunto)')}${m.att ? ` <span class="mi-att">📎</span>` : ''}</span>
+      ${MS.group === 'all' ? `<span class="mi-g">${esc(m.group.label)}</span>` : ''}</button>`;
+  }).join('') + (MS.more ? `<button class="btn sm ghost" data-mmore style="margin:10px auto;display:flex">Cargar más</button>` : '')
+    : `<div class="empty" style="padding:40px 20px">${ICON.inbox}<b>Sin correos</b>No hay mensajes en esta vista.</div>`;
+}
+async function openMail(id) {
+  MS.sel = id; $$('.mail-it').forEach(b => b.classList.toggle('on', b.dataset.mid === id));
+  const el = $('#mRead'); el.innerHTML = `<div class="empty" style="padding:60px">Cargando…</div>`;
+  $('#mail').classList.add('reading');
+  let m;
+  try { m = await mailApi('GET', '/msg/' + encodeURIComponent(id)); } catch (e) { el.innerHTML = `<div class="empty" style="padding:60px">${ICON.x}<b>No se pudo abrir</b>${esc(e.message)}</div>`; return; }
+  const meta = MS.items.find(x => x.id === id) || {};
+  if (meta && !meta.seen) { meta.seen = true; const it = $(`.mail-it[data-mid="${CSS.escape(id)}"]`); if (it) it.classList.remove('unread'); refreshMail(true); }
+  const fmtA = l => (l || []).map(a => esc(a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
+  const g = meta.group || {};
+  const assign = g.type && g.type !== 'cliente' && can('clientes') ? `<div class="mail-assign">${ICON.user}<span>Remitente sin cliente: <b>${esc(g.peer || '')}</b></span><select class="input" id="mAssign"><option value="">Asignar a cliente…</option>${[...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre)).map(c => `<option value="${esc(c.id)}">${esc(clientLabel(c))}</option>`).join('')}</select></div>` : '';
+  el.innerHTML = `
+    <div class="mail-rh">
+      <button class="icon-btn mail-back" data-mback title="Volver">${ICON.left}</button>
+      <h2>${esc(m.subject || '(sin asunto)')}</h2>
+      <div class="mail-meta"><div><b>${fmtA(m.from)}</b><small>Para: ${fmtA(m.to)}${m.cc.length ? ' · CC: ' + fmtA(m.cc) : ''}</small></div><small>${new Date(m.date).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}</small></div>
+      <div class="mail-acts"><button class="btn sm" data-mreply>${ICON.left}Responder</button>${(m.to.length + m.cc.length) > 1 ? `<button class="btn sm" data-mreplyall>Responder a todos</button>` : ''}<button class="btn sm ghost" data-mfwd>${ICON.right}Reenviar</button></div>
+      ${assign}
+    </div>
+    ${m.attachments.length ? `<div class="mail-atts">${m.attachments.map(a => `<a class="mail-att" href="/api/mail/msg/${encodeURIComponent(id)}/att/${a.i}">${ICON.download}<span><b>${esc(a.filename)}</b><small>${fmtBytes(a.size)}</small></span></a>`).join('')}</div>` : ''}
+    <iframe class="mail-body" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="Contenido del correo"></iframe>
+    <p class="mail-note">${ICON.lock.replace('width="20" height="20"', 'width="11" height="11"')} Por seguridad no se cargan imágenes externas ni scripts.</p>`;
+  const body = m.html || `<pre style="white-space:pre-wrap;font:14px/1.5 system-ui">${esc(m.text)}</pre>`;
+  el.querySelector('.mail-body').srcdoc = `<!doctype html><meta charset="utf-8"><base target="_blank"><style>body{font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1b2d4f;margin:14px;word-wrap:break-word}img{max-width:100%;height:auto}</style>${body}`;
+  const quote = () => `<p>El ${new Date(m.date).toLocaleString('es-MX')}, ${fmtA(m.from)} escribió:</p>${m.html || esc(m.text).replace(/\n/g, '<br>')}`;
+  const re = s => /^re:/i.test(s || '') ? s : 'Re: ' + (s || '');
+  el.querySelector('[data-mreply]').onclick = () => composeMail({ to: m.from.map(a => a.address).join(', '), subject: re(m.subject), replyTo: id, quoteHtml: quote() });
+  const ra = el.querySelector('[data-mreplyall]'); if (ra) ra.onclick = () => {
+    const mine = (MS.status.user || '').toLowerCase();
+    const all = [...m.from, ...m.to].map(a => a.address).filter(a => a && a.toLowerCase() !== mine);
+    composeMail({ to: [...new Set(all)].join(', '), cc: m.cc.map(a => a.address).filter(a => a.toLowerCase() !== mine).join(', '), subject: re(m.subject), replyTo: id, quoteHtml: quote() });
+  };
+  el.querySelector('[data-mfwd]').onclick = () => composeMail({ subject: 'Fwd: ' + (m.subject || ''), quoteHtml: quote() });
+  el.querySelector('[data-mback]').onclick = () => $('#mail').classList.remove('reading');
+  const as = el.querySelector('#mAssign');
+  if (as) as.onchange = () => {
+    const c = Store.data.clientes.find(x => x.id === as.value); if (!c || !g.peer) return;
+    const list = String(c.email || '').split(/[,;\s]+/).filter(Boolean);
+    if (!list.map(x => x.toLowerCase()).includes(g.peer.toLowerCase())) list.push(g.peer);
+    c.email = list.join(', '); c.modificado = new Date().toISOString(); Store.save('clientes');
+    toast(`${g.peer} asignado a ${c.nombre}`); setTimeout(() => refreshMail(true), 400);
+    el.querySelector('.mail-assign').remove();
+  };
+}
+const fileToB64 = f => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(f); });
+/* Redactar: { to, cc, subject, text, replyTo, quoteHtml, attachments:[{filename, contentType, data}] } */
+function composeMail(o) {
+  let atts = [...(o.attachments || [])];
+  const budgets = can('presupuesto') ? Store.data.presupuestos.filter(b => b.data) : [];
+  openModal({
+    title: o.replyTo ? 'Responder' : 'Nuevo correo', size: 'wide',
+    body: `<div class="grid2">
+      <div class="field span2"><label>Para <span class="req">*</span></label><input class="input" name="to" value="${esc(o.to || '')}" placeholder="correo@cliente.com, otro@cliente.com" list="mailClients"></div>
+      <datalist id="mailClients">${Store.data.clientes.filter(c => c.email).flatMap(c => String(c.email).split(/[,;\s]+/).filter(Boolean).map(e => `<option value="${esc(e)}">${esc(c.nombre)}</option>`)).join('')}</datalist>
+      <div class="field span2"><label>CC</label><input class="input" name="cc" value="${esc(o.cc || '')}"></div>
+      <div class="field span2"><label>Asunto</label><input class="input" name="subject" value="${esc(o.subject || '')}"></div>
+      <div class="field span2"><label>Mensaje</label><textarea class="input" name="text" rows="9">${esc(o.text || '')}</textarea>${o.quoteHtml ? '<small class="meta-line">Se incluye el mensaje original debajo.</small>' : ''}</div>
+      <div class="field span2"><label>Adjuntos <small class="meta-line">(máx. 20 MB en total)</small></label>
+        <div class="mail-catts" id="cAtts"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><label class="btn sm">${ICON.plus}<span>Adjuntar archivo</span><input type="file" id="cFile" multiple hidden></label>
+        ${budgets.length ? `<select class="input" id="cBud" style="max-width:340px"><option value="">Adjuntar presupuesto en PDF…</option>${budgets.map(b => `<option value="${b.id}">${esc(b.folio || 'Sin folio')} · ${esc(b.clienteNombre || '')}</option>`).join('')}</select>` : ''}</div></div>
+    </div>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-send>${ICON.right}Enviar</button>`,
+    onMount(m, close) {
+      const f = n => m.querySelector(`[name=${n}]`);
+      const drawA = () => { m.querySelector('#cAtts').innerHTML = atts.map((a, i) => `<span class="chip">📎 ${esc(a.filename)} <small>${fmtBytes(a.data.length * 0.75)}</small><button type="button" class="icon-btn" data-arm="${i}" style="width:22px;height:22px">${ICON.x}</button></span>`).join(''); };
+      drawA();
+      m.querySelector('#cAtts').addEventListener('click', e => { const b = e.target.closest('[data-arm]'); if (b) { atts.splice(+b.dataset.arm, 1); drawA(); } });
+      m.querySelector('#cFile').addEventListener('change', async e => {
+        for (const file of e.target.files) { if (file.size > 15 * 1048576) { toast(file.name + ' es demasiado grande', true); continue; } atts.push({ filename: file.name, contentType: file.type || 'application/octet-stream', data: await fileToB64(file) }); }
+        e.target.value = ''; drawA();
+      });
+      const cb = m.querySelector('#cBud');
+      if (cb) cb.addEventListener('change', async () => {
+        const b = Store.data.presupuestos.find(x => x.id === cb.value); cb.value = ''; if (!b) return;
+        try { const doc = await makeBudgetPDF(b.data); atts.push({ filename: budgetFile(b.folio), contentType: 'application/pdf', data: doc.output('datauristring').split(',')[1] }); drawA(); }
+        catch (e) { toast(e.message || 'No se pudo generar el PDF', true); }
+      });
+      m.querySelector('[data-send]').onclick = async () => {
+        if (!f('to').value.trim()) { f('to').classList.add('invalid'); f('to').focus(); return; }
+        if (!f('subject').value.trim() && !await confirmDialog('Sin asunto', '¿Enviar el correo sin asunto?', 'Enviar', false)) return;
+        const btn = m.querySelector('[data-send]'); btn.disabled = true; btn.lastChild.textContent = 'Enviando…';
+        try {
+          await mailApi('POST', '/send', { to: f('to').value, cc: f('cc').value, subject: f('subject').value, text: f('text').value, replyTo: o.replyTo || null, quoteHtml: o.quoteHtml || null, attachments: atts });
+          close(); toast('Correo enviado'); if (current === 'correo') setTimeout(() => refreshMail(true), 1500);
+        } catch (e) { toast(e.message, true); btn.disabled = false; btn.lastChild.textContent = 'Enviar'; }
+      };
+    }
+  });
+}
+/* Enviar un presupuesto guardado por correo (desde Presupuesto) */
+async function emailBudget(b) {
+  const c = Store.data.clientes.find(x => x.id === b.clienteId) || {};
+  try {
+    const doc = await makeBudgetPDF(b.data);
+    composeMail({
+      to: String(c.email || '').split(/[,;\s]+/).filter(Boolean)[0] || '',
+      subject: `Propuesta comercial ${b.folio || ''} · TRIDI MX`,
+      text: `Hola ${c.nombre || ''},\n\nTe compartimos la propuesta comercial ${b.folio || ''}${b.titulo ? ' para ' + b.titulo : ''}.\nQuedamos atentos a cualquier duda.\n\nSaludos,\nTRIDI MX\n${BANK.tel} · ${BANK.correo}`,
+      attachments: [{ filename: budgetFile(b.folio), contentType: 'application/pdf', data: doc.output('datauristring').split(',')[1] }]
+    });
+  } catch (e) { toast(e.message || 'No se pudo generar el PDF', true); }
+}
+
 /* ================= Módulos en construcción ================= */
 const SOON_INFO = {
   fiscal: { t: 'Fiscal', d: 'Ingresos y egresos (de TRIDI Finanzas), IVA trasladado y acreditable, retenciones, estimado de ISR RESICO, ventas con y sin factura, factura global y timbrado CFDI 4.0 vía PAC.', f: 'Fase 3' }
@@ -3076,6 +3285,7 @@ function renderPresupuesto(stage) {
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">
           <button class="btn primary" data-act="bpdf" style="justify-content:center;height:46px">${ICON.pdf}Generar PDF</button>
           <div style="display:flex;gap:8px"><button class="btn" data-act="bsave" style="flex:1;justify-content:center">${ICON.save}Guardar</button><button class="btn" data-act="bnew" style="flex:1;justify-content:center">${ICON.reset}Nuevo</button></div>
+          ${can('correo') ? `<button class="btn" data-act="bmail" style="justify-content:center">${ICON.inbox}Enviar por correo</button>` : ''}
         </div>
       </div>
       <div class="card recent">
@@ -3111,6 +3321,7 @@ function renderPresupuesto(stage) {
     if (a === 'addobs') { PB.observaciones.push(''); drawObs(); $$('#obsList textarea').pop().focus(); saveBudgetDraft(); return; }
     if (a === 'resetobs') { PB.observaciones = NOTAS_DEFAULT(PB.moneda); drawObs(); saveBudgetDraft(); return; }
     if (a === 'bpdf') return generateBudgetPDF();
+    if (a === 'bmail') { if (!saveBudget(false)) return; const rec = Store.data.presupuestos.find(x => x.id === PB.savedId); return rec && emailBudget(rec); }
     if (a === 'bsave') return saveBudget(true);
     if (a === 'bnew') return resetBudget();
     const od = e.target.closest('[data-odel]'); if (od) { PB.observaciones.splice(+od.dataset.odel, 1); drawObs(); saveBudgetDraft(); return; }
@@ -3314,6 +3525,7 @@ function budgetMenu(btn) {
   popMenu(btn, [
     { label: 'Abrir / editar', icon: 'open', run: () => openBudget(id) },
     { label: 'Descargar PDF', icon: 'download', run: async () => { try { (await makeBudgetPDF(b.data)).save(budgetFile(b.folio)); } catch (e) { toast(e.message || 'Error al generar el PDF', true); } } },
+    ...(can('correo') ? [{ label: 'Enviar por correo', icon: 'inbox', run: () => emailBudget(b) }] : []),
     ...(can('cobranza') ? [{ label: cobMap()[id] ? 'Ver en Cobranza' : 'Aprobado · enviar a Cobranza', icon: 'wallet', run: () => guardBudget(() => { if (!cobMap()[id]) { addToCobranza(id); toast('Agregado a Cobranza'); } go('cobranza'); setTimeout(() => cobDetail(id), 80); }) }] : []),
     ...(can('proyectos') ? [{ label: b.proyectoId && Store.data.proyectos.some(x => x.id === b.proyectoId) ? 'Ver proyecto' : 'Convertir en proyecto', icon: 'folder', run: () => guardBudget(() => projectFromBudget(b)) }] : []),
     { label: 'Nueva revisión', icon: 'copy', run: () => guardBudget(() => { const rev = (+b.data.rev || 0) + 1; PB = { ...newBudget(), ...b.data, savedId: null, rev, fecha: todayISO(), vigenciaHasta: addDaysISO(todayISO(), VIGENCIA_DIAS), folio: String(b.data.folio || '').replace(/[-_]Rev\.\d+$/, '') + '-Rev.' + rev }; budgetSnap = ''; saveBudgetDraft(); renderPresupuesto($('#stage')); toast('Revisión ' + rev + ' lista para editar'); }) },
@@ -3328,6 +3540,7 @@ const MOD_INFO = [
   { k: 'clientes', icon: 'users', d: 'Cartera, saldos y datos de contacto' },
   { k: 'actividades', icon: 'kanban', d: 'Tablero del equipo en campo' },
   { k: 'proyectos', icon: 'folder', d: 'Avance, fechas e incidencias' },
+  { k: 'correo', icon: 'inbox', d: 'Leer y enviar correos de contacto@' },
   { k: 'presupuesto', icon: 'cash', d: 'Propuestas comerciales en PDF' },
   { k: 'cobranza', icon: 'wallet', d: 'Pagos, anticipos y saldos pendientes' },
   { k: 'fiscal', icon: 'receipt', d: 'Resumen fiscal y facturación' },

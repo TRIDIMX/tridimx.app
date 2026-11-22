@@ -23,7 +23,7 @@ const TRUST_PROXY = process.env.TRUST_PROXY !== '0';
 const SESSION_MS = (+process.env.SESSION_DAYS || 7) * 864e5;
 const MAX_FAILS = 5, LOCK_MS = 15 * 60 * 1000;
 const MAX_BODY = 60 * 1024 * 1024, MAX_IMG = 6 * 1024 * 1024;
-const MODULES = ['clientes', 'proyectos', 'actividades', 'presupuesto', 'cobranza', 'fiscal', 'produccion', 'taller', 'monitor'];
+const MODULES = ['clientes', 'proyectos', 'actividades', 'presupuesto', 'cobranza', 'fiscal', 'correo', 'produccion', 'taller', 'monitor'];
 const ROLES = ['admin', 'colaborador'];
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp', '.webmanifest': 'application/manifest+json' };
 
@@ -73,6 +73,7 @@ function persistDb(keys) {
 function persistNotifs() { store.put('notifs', notifs); }
 function persistUsers() { store.put('users', users); }
 const prod = require('./prod')(store, () => db);
+const mail = require('./mail')(store, () => db);
 
 /* ---------- Usuarios / contraseñas ---------- */
 const sha = s => crypto.createHash('sha256').update(String(s)).digest();
@@ -241,6 +242,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/me' && method === 'GET') return send(req, res, 200, publicUser(me));
       if (await prod.handle(req, res, p, method, me, { send, readBody, can })) return;
+      if (await mail.handle(req, res, p, method, me, { send, readBody, can, headers })) return;
       if (p === '/api/db' && method === 'GET') return send(req, res, 200, dbFor(me));
 
       const m = /^\/api\/db\/([a-zA-Z]+)$/.exec(p);
@@ -408,4 +410,5 @@ server.listen(PORT, () => {
   backupDaily();
   if (!ADMIN_USER || !ADMIN_PASS) console.warn('⚠ Define AUTH_USER y AUTH_PASS en las variables de entorno para poder iniciar sesión.');
   else console.log(`Administrador principal: ${ADMIN_USER}  ·  usuarios adicionales: ${users.length}`);
+  console.log(mail.status.enabled ? `Correo: ${mail.status.user}` : 'Correo: sin configurar (MAIL_USER / MAIL_PASS)');
 });

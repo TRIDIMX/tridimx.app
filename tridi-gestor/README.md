@@ -1,4 +1,18 @@
-# TRIDI MX · Gestor (v6.0 · Fase 2)
+# TRIDI MX · Gestor (v6.1 · Correo)
+
+## Novedades v6.1 — Correo (Hostinger)
+- Módulo **Correo** (permiso `correo`): bandeja de `contacto@tridimx.tech` agrupada por cliente
+  (correo registrado en Clientes → dominio de la empresa del cliente → otros dominios → «Sin asignar»).
+- Leer (HTML en marco aislado, sin scripts ni imágenes externas), adjuntos, responder, responder a todos, reenviar,
+  redactar con adjuntos y **adjuntar presupuestos en PDF**. «Enviar por correo» desde Presupuesto.
+- «Asignar a cliente»: agrega la dirección del remitente al cliente y desde ahí sus correos se agrupan solos.
+- Sincroniza encabezados cada 2 min (último año, `MAIL_DAYS`); el contenido se descarga al abrir. Los enviados se guardan
+  también en la carpeta Enviados del buzón, así que se ven en el webmail y en el celular.
+- Variables en Easypanel: `MAIL_USER=contacto@tridimx.tech`, `MAIL_PASS=…` (opcional `MAIL_FROM_NAME`, `MAIL_DAYS`).
+  Servidores por defecto: imap.hostinger.com:993 y smtp.hostinger.com:465.
+- Ahora el proyecto tiene dependencias (imapflow, nodemailer, mailparser): el Dockerfile ejecuta `npm ci`.
+
+# Fase 2 (v6.0)
 
 Base: dashboard Arquitechtura AGIS v4.3, con marca y módulos de TRIDI MX.
 

@@ -986,3 +986,45 @@ body.sb-collapsed .sb-badge{position:absolute;top:4px;right:6px;min-width:16px;h
 .land-alert b{font-weight:800}
 @media (max-width:760px){.cob-kpis,.cob-sum{grid-template-columns:1fr 1fr}}
 .cob-sum .cob-pill{align-self:flex-start}
+
+/* ---------- TRIDI MX: Correo ---------- */
+.mail{display:grid;grid-template-columns:250px minmax(280px,380px) minmax(0,1fr);gap:12px;height:calc(100vh - var(--top) - 48px)}
+.mail>*{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-1);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.mail-gh{display:flex;gap:8px;padding:12px}
+.mail-status{padding:0 14px 10px;display:flex;flex-direction:column;font-size:12px;border-bottom:1px solid var(--line-2)}
+.mail-status span{font-weight:700;color:var(--navy)}.mail-status span.bad{color:var(--bad)}.mail-status small{color:var(--muted)}
+.mail-glist{overflow:auto;padding:8px}
+.mail-gt{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:12px 8px 4px}
+.mail-g{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;padding:7px 8px;border-radius:10px;text-align:left;font-size:13px;color:var(--text)}
+.mail-g:hover{background:#f3f4f7}.mail-g.on{background:var(--accent-soft);font-weight:700}
+.mg-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:#f2f4f7;color:var(--muted);flex:none}
+.mg-ico svg{width:15px;height:15px}.mg-ico.t-cliente{background:var(--accent-soft);color:var(--teal-d)}.mg-ico.t-dominio{background:#eef0ff;color:#4f46e5}
+.mg-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mail-g small{color:var(--faint);font-size:11px}.mg-n{background:var(--orange);color:#fff;border-radius:999px;font-size:11px;padding:1px 7px}
+.mail-lh{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line-2)}
+.mail-lh .seg button{font-size:12px;padding:6px 8px}
+.mail-items{overflow:auto;flex:1}
+.mail-it{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line-2);background:none;padding:10px 14px;font-size:13px;color:var(--text)}
+.mail-it:hover{background:var(--surface-2)}.mail-it.on{background:var(--accent-soft)}
+.mail-it.unread{border-left:3px solid var(--orange);padding-left:11px}.mail-it.unread b,.mail-it.unread .mi-sub{font-weight:800}
+.mi-top{display:flex;justify-content:space-between;gap:8px}.mi-top b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.mi-top small{color:var(--faint);white-space:nowrap}
+.mi-sub{color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mi-out{color:var(--teal-d);margin-right:4px}
+.mi-g{font-size:11px;color:var(--teal-d);font-weight:700}
+.mail-read{overflow:auto}
+.mail-rh{padding:16px 18px;border-bottom:1px solid var(--line-2)}
+.mail-rh h2{margin:0 0 10px;font-size:18px;color:var(--navy)}
+.mail-meta{display:flex;justify-content:space-between;gap:12px;font-size:13px}.mail-meta>div{display:flex;flex-direction:column}.mail-meta small{color:var(--muted)}
+.mail-acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.mail-assign{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 12px;border-radius:12px;background:var(--orange-soft);font-size:12.5px;flex-wrap:wrap}
+.mail-assign select{max-width:260px;height:36px}
+.mail-atts{display:flex;gap:8px;flex-wrap:wrap;padding:10px 18px;border-bottom:1px solid var(--line-2)}
+.mail-att{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--text);font-size:12.5px}
+.mail-att span{display:flex;flex-direction:column}.mail-att small{color:var(--muted)}
+.mail-body{flex:1;min-height:340px;width:100%;border:0}
+.mail-note{margin:0;padding:6px 18px 10px;font-size:11px;color:var(--faint)}
+.mail-back{display:none}
+.mail-catts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.sb-badge.info{background:var(--orange)}
+[data-msync].spin svg{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:1100px){.mail{grid-template-columns:220px minmax(0,1fr)}.mail-read{display:none}.mail.reading .mail-list{display:none}.mail.reading .mail-read{display:flex}.mail-back{display:inline-grid;float:left;margin-right:8px}}
+@media (max-width:760px){.mail{grid-template-columns:1fr}.mail-groups{max-height:180px}.mail.reading .mail-groups{display:none}}
