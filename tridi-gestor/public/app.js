@@ -878,7 +878,7 @@ function clientForm2(c) {
   openModal({
     title: isNew ? 'Nuevo cliente' : 'Editar cliente', size: 'wide',
     body: `${!isNew ? `<div class="meta-line">Creado ${fmtDate(c.creado)} · Modificado ${fmtDate(c.modificado)}</div>` : ''}
-      ${c.porCompletar ? `<div class="pend-box">${ICON.edit}<span>Este cliente se creó con un nombre provisional durante la migración. Escribe el nombre real del contacto.</span></div>` : ''}
+      ${c.porCompletar ? `<div class="pend-box">${ICON.edit}<span>${(c.pendientes || []).length ? `<b>Faltan datos:</b> ${esc(c.pendientes.join(', '))}. Edita el cliente para completarlos.` : 'Este cliente se creó con un nombre provisional durante la migración. Escribe el nombre real del contacto.'}</span></div>` : ''}
       <div class="grid2">
         <div class="field"><label>Nombre del cliente / contacto <span class="req">*</span></label><input class="input" name="nombre" value="${esc(c.nombre)}" placeholder="Persona o empresa" autofocus></div>
         <div class="field"><label>RFC <small class="meta-line">(12 = persona moral · 13 = persona física)</small></label><input class="input mono" name="rfc" value="${esc(c.rfc || '')}" maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase"></div>
@@ -908,6 +908,8 @@ function clientForm2(c) {
         if (cp && !/^\d{5}$/.test(cp)) { f('cp').classList.add('invalid'); return toast('El C.P. debe tener 5 dígitos', true); }
         const now = new Date().toISOString();
         const rec = { nombre, rfc, razonSocial: f('razonSocial').value.trim(), regimen: f('regimen').value, cp, telefono: f('telefono').value.trim(), email: f('email').value.trim(), notas: f('notas').value.trim(), modificado: now, porCompletar: false, demo: false };
+        const stillMissing = CLI_FIELDS.filter(x => !String(rec[x.k] || '').trim()).map(x => x.l);
+        if (c.pendientes && stillMissing.length) { rec.porCompletar = true; rec.pendientes = stillMissing; } else rec.pendientes = [];
         if (isNew) { Store.data.clientes.unshift({ id: cid, creado: now, ...rec }); toast('Cliente registrado'); }
         else {
           const i = Store.data.clientes.findIndex(x => x.id === c.id);
@@ -2281,7 +2283,7 @@ function renderProyectos(stage) {
   <section class="panel" id="proyectos">
     <div class="view-head">
       <div><h1>Proyectos</h1><p>Avance por actividades, fechas comprometidas, incidencias y presupuestos de cada obra.</p></div>
-      <div class="actions">${canEdit ? `${can('presupuesto') || Store.data.presupuestos.length ? `<button class="btn" data-act="pfrombud">${ICON.cash}Desde presupuesto</button>` : ''}<button class="btn primary" data-act="pnew">${ICON.plus}Nuevo proyecto</button>` : ''}</div>
+      <div class="actions">${canEdit ? `<button class="btn" data-act="pimport">${ICON.download}Importar PDF / XML</button>${can('presupuesto') || Store.data.presupuestos.length ? `<button class="btn" data-act="pfrombud">${ICON.cash}Desde presupuesto</button>` : ''}<button class="btn primary" data-act="pnew">${ICON.plus}Nuevo proyecto</button>` : ''}</div>
     </div>
     <div class="tabs" id="pTabs"></div>
     <div class="toolbar"><div class="search">${ICON.search}<input class="input" id="pSearch" placeholder="Buscar proyecto, cliente u obra…" value="${esc(PS.q)}"></div></div>
@@ -2293,6 +2295,7 @@ function renderProyectos(stage) {
     const a = e.target.closest('[data-act]')?.dataset.act;
     if (a === 'pnew') return projectForm();
     if (a === 'pfrombud') return pickBudgetForProject();
+    if (a === 'pimport') return importDocPick();
     const t = e.target.closest('[data-ptab]'); if (t) { PS.tab = t.dataset.ptab; drawProjects(); return; }
     const c = e.target.closest('[data-pid]'); if (c) openProject(c.dataset.pid);
   });
@@ -2354,7 +2357,7 @@ function renderProjectDetail(stage, p) {
         <div class="card">
           <div class="card-h"><h2>Sistemas</h2>${canEdit ? `<button class="btn sm" data-act="sysadd">${ICON.plus}Sistema</button>` : ''}</div>
           <div class="syslist">${(p.sistemas || []).length ? p.sistemas.map(s => { const sp = sysProgress(p, s); return `
-            <div class="sysrow"><div class="sys-h"><b>${esc(s.nombre)}</b><span>${sp.value}%${sp.manual ? ' <em>manual</em>' : ''}</span>${canEdit ? `<button class="icon-btn" data-sysmenu="${s.id}" aria-label="Opciones">${ICON.more}</button>` : ''}</div>${bar(sp.value)}<small>${sp.done}/${sp.total} actividades</small></div>`; }).join('') : '<p class="meta-line">Agrega los sistemas del proyecto (CCTV, Audio, Redes…) para ver el avance de cada uno.</p>'}</div>
+            <div class="sysrow"><div class="sys-h"><b>${esc(s.nombre)}</b><span>${sp.value}%${sp.manual ? ' <em>manual</em>' : ''}</span>${canEdit ? `<button class="icon-btn" data-sysmenu="${s.id}" aria-label="Opciones">${ICON.more}</button>` : ''}</div>${bar(sp.value)}<small>${sp.done}/${sp.total} actividades</small></div>`; }).join('') : '<p class="meta-line">Agrega las líneas de trabajo del proyecto (impresión 3D, grabado, armado…) para ver el avance de cada una.</p>'}</div>
         </div>
         <div class="card">
           <div class="card-h"><h2>Actividades</h2>${can('actividades') ? `<button class="btn sm primary" data-act="pcard">${ICON.plus}Nueva actividad</button>` : ''}</div>
@@ -2391,6 +2394,11 @@ function renderProjectDetail(stage, p) {
           <div class="plinks">${buds.length ? buds.map(b => `<div class="plink"${can('presupuesto') ? ` data-bud="${b.id}"` : ''}>${ICON.cash}<span><b>${esc(b.folio || 'Sin folio')}</b><small>${fmtDate(b.fecha)} · $${AGIS_money(b.total)} ${esc(b.moneda || '')}</small></span>${canEdit ? `<button class="icon-btn danger" data-budunlink="${b.id}" title="Desvincular">${ICON.unlink}</button>` : ''}</div>`).join('') : '<p class="meta-line">Sin presupuestos ligados.</p>'}</div>
           ${canEdit && Store.data.presupuestos.some(b => !(p.presupuestoIds || []).includes(b.id)) ? `<select class="input" id="budLink" style="margin-top:10px"><option value="">Vincular presupuesto (adicional, revisión)…</option>${Store.data.presupuestos.filter(b => !(p.presupuestoIds || []).includes(b.id)).map(b => `<option value="${b.id}">${esc(b.folio)} · ${esc(b.clienteNombre || '')}</option>`).join('')}</select>` : ''}
         </div>
+        ${(p.pendientes || []).length ? `<div class="pend-box">${ICON.edit}<span><b>Por completar:</b> ${esc(p.pendientes.join(', '))}. Edita el proyecto para llenarlos.</span></div>` : ''}
+        ${(p.documentos || []).length ? `<div class="card">
+          <div class="card-h"><h2>Documentos</h2></div>
+          <div class="plinks">${p.documentos.map(dc => `<a class="plink" href="/api/docs/${esc(dc.id)}">${ICON.download}<span><b>${esc(dc.nombre)}</b><small>${esc(dc.tipo || '')}${dc.folio ? ' · ' + esc(dc.folio) : ''}${dc.total != null ? ' · $' + AGIS_money(dc.total) + ' ' + esc(dc.moneda || '') : ''}</small></span></a>`).join('')}</div>
+        </div>` : ''}
         <div class="card">
           <div class="card-h"><h2>Datos comerciales</h2></div>
           <div class="kv">
@@ -2531,6 +2539,7 @@ function projectForm(p, prefill) {
           target = projById(p.id);
           if (changed) (target.reprogramaciones = target.reprogramaciones || []).push({ de: origFin, a: ff, motivo: f('motivo').value.trim(), origen, by: ME.username, byName: userName(), at: new Date().toISOString() });
           Object.assign(target, rec);
+          if (target.pendientes && target.direccion) target.pendientes = target.pendientes.filter(x => !x.startsWith('Dirección'));
           if (!target.fechaFinBase && ff) target.fechaFinBase = ff;
           toast(changed ? 'Fecha reprogramada (se conserva la original)' : 'Proyecto actualizado');
         }
@@ -3038,6 +3047,125 @@ async function emailBudget(b) {
       attachments: [{ filename: budgetFile(b.folio), contentType: 'application/pdf', data: doc.output('datauristring').split(',')[1] }]
     });
   } catch (e) { toast(e.message || 'No se pudo generar el PDF', true); }
+}
+
+/* ================= Importar presupuesto / factura (PDF o XML) a Proyectos ================= */
+const CLI_FIELDS = [
+  { k: 'nombre', l: 'Nombre del cliente' }, { k: 'rfc', l: 'RFC' }, { k: 'razonSocial', l: 'Razón social' },
+  { k: 'regimen', l: 'Régimen fiscal' }, { k: 'cp', l: 'C.P. fiscal' }, { k: 'email', l: 'Correo' }, { k: 'telefono', l: 'Teléfono' }
+];
+function importDocPick() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.pdf,.xml,application/pdf,text/xml,application/xml';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    if (f.size > 10 * 1048576) return toast('El archivo no debe pasar de 10 MB', true);
+    const t = toast('Leyendo ' + f.name + '…');
+    try {
+      const r = await fetch('/api/import/doc', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: f.name, data: await fileToB64(f) }) });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 401) return sessionExpired();
+      if (!r.ok) throw new Error(d.error || 'No se pudo leer el documento');
+      importReview(d);
+    } catch (e) { toast(e.message, true); }
+  };
+  inp.click();
+}
+function importReview(r) {
+  const c = r.cliente, d = r.doc;
+  const tipoL = { factura: 'Factura (CFDI)', 'factura recibida': 'Factura recibida', presupuesto: 'Presupuesto', 'complemento de pago': 'Complemento de pago', documento: 'Documento' }[r.tipo] || r.tipo;
+  const clientes = [...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const money = n => n == null ? '—' : '$' + AGIS_money(n) + ' ' + (d.moneda || 'MXN');
+  const fld = (k, l, v, extra = '') => `<div class="field ${extra}"><label>${l}</label><input class="input ${v ? '' : 'imp-miss'}" data-cf="${k}" value="${esc(v || '')}" placeholder="Falta · llenar después"></div>`;
+  const regOpts = v => `<option value="">${v ? '—' : 'Falta · llenar después'}</option>` + REGIMENES.map(x => `<option value="${x.k}" ${v === x.k ? 'selected' : ''}>${x.k} · ${esc(x.l)}</option>`).join('');
+  openModal({
+    title: 'Importar a Proyectos', size: 'wide',
+    body: `<div class="imp-head">${ICON.pdf}<div><b>${esc(r.archivo)}</b><small>${esc(tipoL)} · leído desde ${r.fuente === 'xml' ? 'XML (datos exactos)' : 'PDF (revisa los datos)'}${d.folio ? ' · Folio ' + esc(d.folio) : ''}${d.uuid ? ' · UUID ' + esc(d.uuid.slice(0, 8)) + '…' : ''}</small></div><b class="imp-tot">${money(d.total)}</b></div>
+      ${r.tipo === 'factura recibida' ? `<p class="imp-warn">${ICON.lock}Esta factura la emitió un proveedor a TRIDI; se toma al emisor como contraparte.</p>` : ''}
+      <div class="sec-h" style="margin-top:14px"><span class="n">01</span><h2>Cliente</h2></div>
+      <div class="seg imp-seg" id="impMode"><button type="button" data-im="exist">Asignar a cliente existente</button><button type="button" data-im="new">Crear cliente nuevo</button></div>
+      <div id="impExist" class="imp-box">
+        ${r.match ? `<p class="imp-ok">${ICON.check || '✓'} Coincide con <b>${esc(r.match.nombre)}</b> por ${esc(r.match.por)}.</p>` : '<p class="meta-line">No se encontró coincidencia automática; elige el cliente si ya existe.</p>'}
+        <div class="field"><label>Cliente</label><select class="input" id="impCli"><option value="">Seleccionar…</option>${clientes.map(k => `<option value="${esc(k.id)}" ${r.match && r.match.id === k.id ? 'selected' : ''}>${esc(clientLabel(k))}</option>`).join('')}</select></div>
+        <p class="meta-line">Los campos vacíos del cliente se completan con lo leído en el documento; lo que ya tiene no se sobrescribe.</p>
+      </div>
+      <div id="impNew" class="imp-box grid2">
+        ${fld('nombre', 'Nombre del cliente / contacto', c.nombre || c.razonSocial)}
+        ${fld('rfc', 'RFC', c.rfc)}
+        ${fld('razonSocial', 'Razón social', c.razonSocial, 'span2')}
+        <div class="field"><label>Régimen fiscal</label><select class="input ${c.regimen ? '' : 'imp-miss'}" data-cf="regimen">${regOpts(c.regimen)}</select></div>
+        ${fld('cp', 'C.P. fiscal', c.cp)}
+        ${fld('email', 'Correo', c.email)}
+        ${fld('telefono', 'Teléfono', c.telefono)}
+      </div>
+      <div class="sec-h" style="margin-top:18px"><span class="n">02</span><h2>Proyecto</h2></div>
+      <div class="grid2">
+        <div class="field span2"><label>Nombre del proyecto <span class="req">*</span></label><input class="input ${r.proyecto.nombre ? '' : 'imp-miss'}" data-pf="nombre" value="${esc(r.proyecto.nombre)}" placeholder="Falta · escribe el nombre"></div>
+        <div class="field"><label>Inicio</label><input class="input" type="date" data-pf="fechaInicio" value="${esc(d.fecha || todayISO())}"></div>
+        <div class="field"><label>Estatus</label><select class="input" data-pf="estatus">${PEST.map(s => `<option value="${s.k}" ${s.k === (r.tipo === 'presupuesto' ? 'prospecto' : 'por_iniciar') ? 'selected' : ''}>${s.l}</option>`).join('')}</select></div>
+        <div class="field span2"><label>Dirección / lugar</label><input class="input ${r.proyecto.direccion ? '' : 'imp-miss'}" data-pf="direccion" value="${esc(r.proyecto.direccion)}" placeholder="Falta · llenar después"></div>
+      </div>
+      <div class="imp-sum">
+        <div><small>Subtotal</small><b>${money(d.subtotal)}</b></div><div><small>IVA</small><b>${money(d.iva)}</b></div>
+        <div><small>Retención ISR</small><b>${d.retIsr ? money(d.retIsr) : '—'}</b></div><div><small>Total</small><b>${money(d.total)}</b></div>
+        ${d.metodoPago ? `<div><small>Método</small><b>${esc(d.metodoPago)}</b></div>` : ''}
+      </div>
+      ${r.conceptos.length ? `<div class="imp-conc"><small>Conceptos detectados (se guardan en las notas del proyecto)</small>${r.conceptos.map(k => `<div><span>${esc(k.descripcion)}</span>${k.importe != null ? `<b>$${AGIS_money(k.importe)}</b>` : ''}</div>`).join('')}</div>` : '<p class="meta-line">No se detectaron conceptos; revisa el documento original desde el proyecto.</p>'}`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-imp>${ICON.save}Importar</button>`,
+    onMount(m, close) {
+      let mode = r.match ? 'exist' : 'new';
+      const setMode = k => { mode = k; $$('#impMode button', m).forEach(b => b.classList.toggle('on', b.dataset.im === k)); m.querySelector('#impExist').hidden = k !== 'exist'; m.querySelector('#impNew').hidden = k !== 'new'; };
+      setMode(mode);
+      m.querySelector('#impMode').onclick = e => { const b = e.target.closest('[data-im]'); if (b) setMode(b.dataset.im); };
+      m.addEventListener('input', e => { if (e.target.matches('.imp-miss') && e.target.value) e.target.classList.remove('imp-miss'); });
+      m.querySelector('[data-imp]').onclick = () => {
+        const cv = k => (m.querySelector(`[data-cf=${k}]`) || {}).value?.trim() || '';
+        const pv = k => (m.querySelector(`[data-pf=${k}]`) || {}).value?.trim() || '';
+        const nombreP = pv('nombre');
+        if (!nombreP) { const el = m.querySelector('[data-pf=nombre]'); el.classList.add('invalid'); el.focus(); return; }
+        const now = new Date().toISOString(), tag = `importación de ${r.archivo} (${fmtDate(todayISO())})`;
+        let cli;
+        if (mode === 'exist') {
+          cli = Store.data.clientes.find(k => k.id === m.querySelector('#impCli').value);
+          if (!cli) { m.querySelector('#impCli').classList.add('invalid'); return toast('Elige el cliente o cambia a «Crear cliente nuevo»', true); }
+          const read = { rfc: c.rfc, razonSocial: c.razonSocial, regimen: c.regimen, cp: c.cp, telefono: c.telefono };
+          Object.entries(read).forEach(([k, v]) => { if (v && !cli[k]) cli[k] = v; });
+          if (c.email) { const l = String(cli.email || '').split(/[,;\s]+/).filter(Boolean); if (!l.map(x => x.toLowerCase()).includes(c.email)) { l.push(c.email); cli.email = l.join(', '); } }
+        } else {
+          const rfc = cv('rfc').toUpperCase().replace(/\s+/g, '');
+          if (rfc && !RFC_RE.test(rfc)) { m.querySelector('[data-cf=rfc]').classList.add('invalid'); return toast('RFC con formato inválido; corrígelo o déjalo vacío', true); }
+          const dup = rfc && !RFC_GENERICOS.includes(rfc) && Store.data.clientes.find(k => (k.rfc || '') === rfc);
+          if (dup) { setMode('exist'); m.querySelector('#impCli').value = dup.id; return toast(`El RFC ya es de ${dup.nombre}; se seleccionó ese cliente`, true); }
+          cli = { id: nextClientId(), creado: now, modificado: now, nombre: cv('nombre') || cv('razonSocial') || 'Cliente sin nombre', rfc, razonSocial: cv('razonSocial'), regimen: cv('regimen'), cp: cv('cp'), email: cv('email'), telefono: cv('telefono'), notas: '', demo: false };
+          Store.data.clientes.unshift(cli);
+        }
+        const faltan = CLI_FIELDS.filter(x => !String(cli[x.k] || '').trim() || (x.k === 'nombre' && cli.nombre === 'Cliente sin nombre')).map(x => x.l);
+        if (faltan.length) {
+          cli.porCompletar = true; cli.pendientes = faltan;
+          cli.notas = [cli.notas, `⚠ Por completar (${tag}): ${faltan.join(', ')}.`].filter(Boolean).join('\n');
+        }
+        cli.modificado = now;
+        // proyecto
+        const faltP = [!pv('direccion') && 'Dirección / lugar', d.total == null && 'Monto total', !d.fecha && 'Fecha del documento'].filter(Boolean);
+        const lines = [`Importado de ${r.tipo}${d.folio ? ' ' + d.folio : ''}${d.uuid ? ' · UUID ' + d.uuid : ''} · ${r.archivo}`];
+        if (d.total != null) lines.push(`Subtotal ${money(d.subtotal)} · IVA ${money(d.iva)}${d.retIsr ? ' · Ret. ISR ' + money(d.retIsr) : ''} · Total ${money(d.total)}${d.metodoPago ? ' · ' + d.metodoPago : ''}`);
+        if (r.conceptos.length) lines.push('Conceptos:', ...r.conceptos.map(k => `• ${k.descripcion}${k.cantidad ? ` (${k.cantidad} ${k.unidad || ''})` : ''}${k.importe != null ? ' — $' + AGIS_money(k.importe) : ''}`));
+        if (faltP.length) lines.push('', `⚠ Por completar: ${faltP.join(', ')}.`);
+        const target = {
+          id: uid(), created: now, createdBy: ME.username, avanceManual: null, resueltas: [], reprogramaciones: [], presupuestoIds: [], sistemas: [],
+          nombre: nombreP, clienteId: cli.id, clienteNombre: cli.nombre, codigo: nextProjectCode(), obra: '', estatus: pv('estatus') || 'por_iniciar',
+          direccion: pv('direccion'), fechaInicio: pv('fechaInicio') || todayISO(), fechaFin: '', fechaFinBase: '', responsable: userName(), equipo: [], origen: '',
+          notas: lines.join('\n'), pendientes: faltP.filter(x => x.startsWith('Dirección')), importe: d.total, moneda: d.moneda || 'MXN',
+          documentos: [{ id: r.docId, nombre: r.archivo, tipo: r.tipo, folio: d.folio || '', uuid: d.uuid || '', total: d.total, moneda: d.moneda || 'MXN', fecha: d.fecha || '', at: now, by: ME.username }]
+        };
+        Store.data.proyectos.unshift(target);
+        Store.save('clientes'); Store.save('proyectos');
+        close();
+        toast(`Proyecto creado${mode === 'new' ? ' y cliente nuevo registrado' : ' y asignado a ' + cli.nombre}${faltan.length || faltP.length ? ' · revisa los datos por completar' : ''}`);
+        PS.view = 'detail'; PS.id = target.id; renderProyectos($('#stage'));
+      };
+    }
+  });
 }
 
 /* ================= Módulos en construcción ================= */

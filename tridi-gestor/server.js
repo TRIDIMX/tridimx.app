@@ -74,6 +74,7 @@ function persistNotifs() { store.put('notifs', notifs); }
 function persistUsers() { store.put('users', users); }
 const prod = require('./prod')(store, () => db);
 const mail = require('./mail')(store, () => db);
+const docs = require('./docimport')(store, () => db);
 
 /* ---------- Usuarios / contraseñas ---------- */
 const sha = s => crypto.createHash('sha256').update(String(s)).digest();
@@ -243,6 +244,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/me' && method === 'GET') return send(req, res, 200, publicUser(me));
       if (await prod.handle(req, res, p, method, me, { send, readBody, can })) return;
       if (await mail.handle(req, res, p, method, me, { send, readBody, can, headers })) return;
+      if (await docs.handle(req, res, p, method, me, { send, readBody, can, headers })) return;
       if (p === '/api/db' && method === 'GET') return send(req, res, 200, dbFor(me));
 
       const m = /^\/api\/db\/([a-zA-Z]+)$/.exec(p);

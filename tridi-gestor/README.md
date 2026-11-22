@@ -1,4 +1,15 @@
-# TRIDI MX · Gestor (v6.2)
+# TRIDI MX · Gestor (v6.3)
+
+## Novedades v6.3 — Importar PDF / XML en Proyectos
+- Botón **«Importar PDF / XML»** en Proyectos: presupuestos (TRIDI u otros) y facturas CFDI en PDF o **XML (datos exactos)**.
+- Lee cliente (nombre, RFC, razón social, régimen, C.P., correo, teléfono), folio/UUID, fecha, subtotal, IVA, retención, total y conceptos.
+- Busca el cliente por **RFC → correo → nombre**; si existe se asigna y solo se llenan sus campos vacíos; si no, se crea.
+- Pantalla de revisión antes de guardar; los campos faltantes quedan como **«Por completar»** en el cliente (pestaña Por completar)
+  y en el proyecto (aviso + notas). El archivo original queda en el proyecto (tarjeta Documentos).
+- PDF escaneados (sin texto) no se pueden leer: usar el PDF original o el XML.
+- Opcional: `TRIDI_RFC` (RFC propio, para distinguir emisor/receptor) y `TRIDI_TEL` (teléfonos propios a ignorar).
+
+# v6.2
 
 ## Novedades v6.2
 - **Firma de correo por usuario**: texto + imagen (GIF animado, PNG o JPG, máx. 1.5 MB) y ancho ajustable.

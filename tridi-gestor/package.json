@@ -1,6 +1,6 @@
 {
   "name": "tridi-gestor",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "description": "Gestor de operación TRIDI MX (base: dashboard AGIS v4.3)",
   "main": "server.js",
   "private": true,
@@ -13,6 +13,7 @@
   "dependencies": {
     "imapflow": "^2.12.2",
     "mailparser": "^3.15.0",
-    "nodemailer": "^10.6.1"
+    "nodemailer": "^10.6.1",
+    "unpdf": "^1.9.1"
   }
 }

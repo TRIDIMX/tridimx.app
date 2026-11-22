@@ -1037,3 +1037,24 @@ body.sb-collapsed .sb-badge{position:absolute;top:4px;right:6px;min-width:16px;h
 .sig-compose{margin-top:8px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--surface-2)}
 .sig-on{display:flex!important;align-items:center;gap:8px;font-size:12.5px!important;font-weight:700!important;text-transform:none!important;letter-spacing:0!important;color:var(--text)!important}
 .sig-on input{width:16px;height:16px;accent-color:var(--teal-d)}
+
+/* ---------- TRIDI MX: Importar PDF / XML ---------- */
+.imp-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2)}
+.imp-head>svg{width:28px;height:28px;color:var(--orange);flex:none}
+.imp-head>div{flex:1;min-width:0;display:flex;flex-direction:column}.imp-head small{color:var(--muted)}
+.imp-tot{font-size:18px;color:var(--navy);white-space:nowrap}
+.imp-warn{display:flex;gap:8px;align-items:center;margin:10px 0 0;padding:8px 12px;border-radius:10px;background:var(--warn-bg);color:var(--warn);font-size:12.5px}
+.imp-seg{margin-bottom:10px}
+.imp-box{padding:12px 14px;border:1px solid var(--line-2);border-radius:14px}
+.imp-ok{display:flex;align-items:center;gap:6px;margin:0 0 10px;color:var(--ok);font-size:13px}
+.imp-ok svg{width:16px;height:16px}
+.input.imp-miss{border-style:dashed;border-color:#f3b48f;background:var(--orange-soft)}
+.input.imp-miss::placeholder{color:#c2410c;opacity:.75}
+.imp-sum{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.imp-sum>div{flex:1;min-width:110px;border:1px solid var(--line-2);border-radius:12px;padding:8px 12px;display:flex;flex-direction:column}
+.imp-sum small{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.imp-sum b{font-variant-numeric:tabular-nums}
+.imp-conc{border:1px solid var(--line-2);border-radius:12px;padding:10px 12px;max-height:180px;overflow:auto}
+.imp-conc>small{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
+.imp-conc>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line-2);font-size:12.5px}
+a.plink{text-decoration:none;color:inherit}
