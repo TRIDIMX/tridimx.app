@@ -1058,3 +1058,46 @@ body.sb-collapsed .sb-badge{position:absolute;top:4px;right:6px;min-width:16px;h
 .imp-conc>small{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
 .imp-conc>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line-2);font-size:12.5px}
 a.plink{text-decoration:none;color:inherit}
+
+/* ---------- TRIDI MX: Fiscal ---------- */
+.fis-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:4px 0 14px}
+.fis-filters .input{width:auto;height:40px}
+.fis-filters .seg button{white-space:nowrap}
+.fis-fac button[data-fac=si].on{background:#e6f8f3;color:#1a8f79}.fis-fac button[data-fac=no].on{background:var(--orange-soft);color:#c2410c}.fis-fac button[data-fac=nc].on{background:#f2f4f7;color:#475569}
+.fis-cob{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);cursor:pointer}
+.fis-cob input{accent-color:var(--teal-d)}
+.fis-kpis{grid-template-columns:repeat(3,1fr)}
+.kpi b.pos,.fis-dt b.pos{color:#15803d}.kpi b.neg,.fis-dt b.neg{color:#be1e1e}
+.fis-split{display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+.fis-split i{width:8px;height:8px;border-radius:2px;display:inline-block}.fis-split i.si{background:var(--teal)}.fis-split i.no{background:var(--orange)}.fis-split i.nc{background:#cbd2dc}
+.fis-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px}
+.fis-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.fis-leg{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+.fis-leg i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.fis-leg .li{background:#1a8f79}.fis-leg .li.nf{background:#8fe0cd}.fis-leg .le{background:#c2410c}.fis-leg .le.nf{background:#f8b48d}
+.fis-svg{width:100%;height:auto;display:block}
+.fis-svg text{font-size:10px;fill:var(--faint)}
+.fis-svg .gl{stroke:var(--line-2);stroke-width:1}
+.fis-svg .bi{fill:#1a8f79}.fis-svg .bi.nf{fill:#8fe0cd}.fis-svg .be{fill:#c2410c}.fis-svg .be.nf{fill:#f8b48d}
+.fis-svg .selm{fill:var(--accent-soft)}
+.tax-sec{display:flex;flex-direction:column;gap:4px;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--line-2)}
+.tax-sec>b{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+.tax-sec>div{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+.tax-sec>div span{color:var(--text-2)}.tax-sec>div b{font-variant-numeric:tabular-nums}
+.tax-sec .tot{padding-top:4px;border-top:1px dashed var(--line);font-weight:800}.tax-sec .tot b{color:var(--navy)}
+.tax-sec .tot.alt{border:0;font-weight:600}.tax-sec .tot.alt span,.tax-sec .tot.alt b{color:var(--orange)}
+.tax-note{margin:0;font-size:11.5px;color:var(--muted);line-height:1.5}
+.fcat{margin-bottom:10px}.fcat-h{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px}
+.fcat-bar{display:flex;height:8px;border-radius:99px;background:#f2f4f7;overflow:hidden}
+.fcat-bar i{display:block;height:100%}.fcat-bar.ingreso i{background:#1a8f79}.fcat-bar.ingreso i.nf{background:#8fe0cd}.fcat-bar.egreso i{background:#c2410c}.fcat-bar.egreso i.nf{background:#f8b48d}
+.fis-tb{flex-wrap:wrap}.fis-tb .input{width:auto;height:40px}
+.fis-dt td.r,.fis-dt th.r{text-align:right}.fis-row{cursor:pointer}.fis-row:hover td{background:var(--surface-2)}
+.ftipo{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:99px}.ftipo.ingreso{background:#ecfdf3;color:#15803d}.ftipo.egreso{background:#fef1f1;color:#be1e1e}
+.fchip{border:0;border-radius:99px;padding:3px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.fchip.f-si{background:#e6f8f3;color:#1a8f79}.fchip.f-no{background:var(--orange-soft);color:#c2410c}.fchip.f-nc{background:#f2f4f7;color:#475569;outline:1px dashed #cbd2dc}
+.fchip:disabled{cursor:default;opacity:.85}
+.fis-facbox .seg{margin-top:4px}
+.fis-taxbox{padding:12px;border:1px solid var(--line-2);border-radius:12px;background:var(--surface-2)}
+.fis-chk{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px}.fis-chk label{display:flex!important;align-items:center;gap:6px;font-size:12.5px!important;text-transform:none!important;letter-spacing:0!important;font-weight:600!important;color:var(--text)!important}
+@media (max-width:1000px){.fis-grid,.fis-grid2,.fis-kpis{grid-template-columns:1fr}}
+.fis-kpis{margin-bottom:14px}.fis-grid>.card{align-self:start}

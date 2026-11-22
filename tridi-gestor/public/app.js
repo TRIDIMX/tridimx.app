@@ -224,6 +224,7 @@ const Store = {
     if (!Array.isArray(this.data.presupuestos)) this.data.presupuestos = [];
     if (!Array.isArray(this.data.proyectos)) this.data.proyectos = [];
     if (!this.data.cobranza || typeof this.data.cobranza !== 'object') this.data.cobranza = {};
+    if (!Array.isArray(this.data.movimientos)) this.data.movimientos = [];
     if (!this.data.catalogos) this.data.catalogos = { secciones: [...SECCIONES_DEF], unidades: [...UNIDADES_DEF] };
     if (!this.data.board) { this.data.board = seedBoard(); if (can('actividades')) this.save('board'); }
     if (!this.data.seeded && !this.data.clientes.length && can('clientes')) {
@@ -241,10 +242,10 @@ const Store = {
   async reload() {
     if (this.mode !== 'api') return;
     const fresh = await Api.req('GET', 'api/db');
-    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos', 'cobranza'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
+    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos', 'cobranza', 'movimientos'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
   },
   save(key) {
-    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza' }[key];
+    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal' }[key];
     if (need && !can(need)) return;
     if (key === 'catalogos' && !isAdmin()) return;
     if (this.mode === 'api') {
@@ -375,7 +376,7 @@ const MODULES = [
   { k: 'presupuesto', t: 'Presupuesto', s: 'Propuestas comerciales', icon: 'cash', hue: 'h-green', render: renderPresupuesto },
   { k: 'proyectos', t: 'Proyectos', s: 'Avance y seguimiento', icon: 'folder', hue: 'h-slate', render: renderProyectos },
   { k: 'cobranza', t: 'Cobranza', s: 'Pagos, anticipos y saldos', icon: 'wallet', hue: 'h-amber', render: renderCobranza },
-  { k: 'fiscal', t: 'Fiscal', s: 'IVA, retenciones e ISR RESICO', icon: 'receipt', hue: 'h-indigo', render: st => renderSoon(st, 'fiscal') },
+  { k: 'fiscal', t: 'Fiscal', s: 'IVA, retenciones e ISR RESICO', icon: 'receipt', hue: 'h-indigo', render: renderFiscal },
   { k: 'produccion', t: 'Control Producción', s: 'Ocupación de impresoras', icon: 'printer', hue: 'h-teal', render: renderProduccion },
   { k: 'taller', t: 'Pantalla del taller', s: 'Vista TV', icon: 'eye', hue: 'h-slate', render: renderTaller },
   { k: 'monitor', t: 'Monitor', s: 'Tiempo real', icon: 'pulse', hue: 'h-rose', adminOnly: true, render: renderMonitor },
@@ -435,7 +436,7 @@ function go(k, opts = {}) {
   if (m && !allowed(m)) { toast('No tienes acceso a ese módulo', true); m = null; }
   if (!m || m.k !== 'monitor') { document.body.classList.remove('tv'); clearInterval(monTimer); }
   $('#stage').classList.toggle('wide', !!m && m.k === 'actividades');
-  $('#stage').classList.toggle('xwide', !!m && ['monitor', 'produccion', 'correo'].includes(m.k));
+  $('#stage').classList.toggle('xwide', !!m && ['monitor', 'produccion', 'correo', 'fiscal'].includes(m.k));
   if (m && m.k === 'proyectos' && current !== 'proyectos' && !opts.keepView) { /* conserva la vista */ }
   if (popClose) popClose();
   if (!m) {
@@ -3168,6 +3169,339 @@ function importReview(r) {
   });
 }
 
+/* ================= FISCAL · análisis de entradas y salidas ================= */
+/* Movimiento: { id, tipo: ingreso|egreso, fecha, categoria, descripcion, contraparte, clienteId, proyectoId,
+   total (lo que entró/salió), facturado: true|false|null (sin clasificar), subtotal, iva, retIsr, retIva, cuenta, forma, folio, notas } */
+const CAT_ING_DEF = ['Venta de producto', 'Servicio personalizado (grabado/impresión)', 'Diseño / modelado', 'Comisión / subcontratación', 'Anticipo de cliente', 'Otro ingreso'];
+const CAT_EGR_DEF = ['Materia prima / insumos', 'Equipo y mantenimiento', 'Renta y servicios', 'Marketing y publicidad', 'Impuestos', 'Nómina / comisiones', 'Envíos y logística', 'Software y suscripciones', 'Otro gasto'];
+const CUENTAS_DEF = ['BBVA (cuenta del negocio)', 'Cuenta sin factura', 'Efectivo', 'Tarjeta de crédito'];
+const RESICO_TABLA = [[25000, 1.00], [50000, 1.10], [83333.33, 1.50], [208333.33, 2.00], [Infinity, 2.50]];
+const resicoTasa = base => (RESICO_TABLA.find(([lim]) => base <= lim) || [0, 2.5])[1];
+const FS = { per: 'mes', mes: todayISO().slice(0, 7), anio: todayISO().slice(0, 4), fac: 'todo', tipo: 'todo', cat: '', cuenta: '', q: '', cob: true };
+const FAC_L = { true: 'Con factura', false: 'Sin factura', null: 'Sin clasificar' };
+const facKey = v => v === true ? 'si' : v === false ? 'no' : 'nc';
+/* Desglose a partir del total recibido/pagado */
+function desglose(total, facturado, conIva, conRet) {
+  total = +total || 0;
+  if (!facturado || !conIva) return { subtotal: r2(total), iva: 0, retIsr: 0 };
+  const f = 1.16 - (conRet ? RET_ISR_RESICO / 100 : 0), sub = r2(total / f);
+  return { subtotal: sub, iva: r2(sub * 0.16), retIsr: conRet ? r2(sub * RET_ISR_RESICO / 100) : 0 };
+}
+/* Ingresos automáticos desde los pagos de Cobranza (solo lectura aquí) */
+function cobranzaMovs() {
+  const out = [];
+  Object.entries(Store.data.cobranza || {}).forEach(([bid, c]) => {
+    const b = Store.data.presupuestos.find(x => x.id === bid); if (!b || c.cancelado) return;
+    const tot = +b.total || 0;
+    (c.pagos || []).forEach(p => {
+      const share = tot ? (+p.monto || 0) / tot : 0, fac = c.factura !== false;
+      out.push({ id: 'cob:' + p.id, auto: true, bid, tipo: 'ingreso', fecha: p.fecha, categoria: 'Cobranza · ' + (TIPOS_PAGO[p.tipo] || 'Pago'), descripcion: `${b.folio || ''} ${b.titulo ? '· ' + b.titulo : ''}`.trim(), contraparte: b.clienteNombre || '', clienteId: b.clienteId,
+        total: +p.monto || 0, facturado: fac, subtotal: fac ? r2((+b.subtotal || tot) * share) : +p.monto || 0, iva: fac ? r2((+b.iva || 0) * share) : 0, retIsr: fac ? r2((+b.retIsr || 0) * share) : 0, retIva: 0, cuenta: fac ? catList('cuentas')[0] : (catList('cuentas')[1] || ''), forma: p.forma || '', folio: b.folio || '', moneda: b.moneda || 'MXN' });
+    });
+  });
+  return out;
+}
+const allMovs = () => [...(Store.data.movimientos || []).map(m => ({ ...m })), ...(FS.cob ? cobranzaMovs() : [])].filter(m => (m.moneda || 'MXN') === 'MXN');
+const inPeriod = (m, per = FS.per) => per === 'todo' ? true : per === 'anio' ? String(m.fecha).startsWith(FS.anio) : String(m.fecha).startsWith(FS.mes);
+function fMovs(opts = {}) {
+  const q = normKey(FS.q);
+  return allMovs().filter(m => inPeriod(m, opts.per)
+    && (opts.ignoreFac || FS.fac === 'todo' || facKey(m.facturado) === FS.fac)
+    && (FS.tipo === 'todo' || m.tipo === FS.tipo)
+    && (!FS.cat || m.categoria === FS.cat) && (!FS.cuenta || m.cuenta === FS.cuenta)
+    && (!q || normKey([m.descripcion, m.contraparte, m.categoria, m.folio, m.notas].join(' ')).includes(q)));
+}
+const sumBy = (list, f) => r2(list.reduce((a, m) => a + (+f(m) || 0), 0));
+const k$ = n => (n < 0 ? '-$' : '$') + AGIS_money(Math.abs(n));
+function renderFiscal(stage) {
+  const years = [...new Set([todayISO().slice(0, 4), ...allMovs().map(m => String(m.fecha).slice(0, 4))])].filter(Boolean).sort().reverse();
+  stage.innerHTML = `
+  <section class="panel" id="fiscal">
+    <div class="view-head">
+      <div><h1>Fiscal</h1><p>Entradas y salidas del negocio, con y sin factura. Los impuestos son un estimado informativo.</p></div>
+      <div class="actions">${isAdmin() ? `<button class="btn ghost" data-act="fimport">${ICON.download}Importar TRIDI Finanzas</button>` : ''}<button class="btn" data-act="fexport">${ICON.download}CSV</button><button class="btn" data-act="fegr">${ICON.plus}Egreso</button><button class="btn primary" data-act="fing">${ICON.plus}Ingreso</button></div>
+    </div>
+    <div class="fis-filters">
+      <div class="seg" id="fPer"><button data-per="mes">Mes</button><button data-per="anio">Año</button><button data-per="todo">Todo</button></div>
+      <input class="input" type="month" id="fMes" value="${FS.mes}">
+      <select class="input" id="fAnio">${years.map(y => `<option ${y === FS.anio ? 'selected' : ''}>${y}</option>`).join('')}</select>
+      <div class="seg fis-fac" id="fFac"><button data-fac="todo">Todo</button><button data-fac="si">Con factura</button><button data-fac="no">Sin factura</button><button data-fac="nc">Sin clasificar</button></div>
+      <label class="fis-cob"><input type="checkbox" id="fCob" ${FS.cob ? 'checked' : ''}> Incluir pagos de Cobranza</label>
+    </div>
+    <div class="kpis fis-kpis" id="fKpis"></div>
+    <div class="fis-grid">
+      <div class="card"><div class="card-h"><h2>Flujo mensual ${'<span class="meta-line" id="fChartY"></span>'}</h2><span class="fis-leg"><i class="li"></i>Ingresos <i class="li nf"></i>sin factura <i class="le"></i>Egresos <i class="le nf"></i>sin factura</span></div><div id="fChart"></div></div>
+      <div class="card"><div class="card-h"><h2>Estimado de impuestos</h2><span class="tagm">Informativo</span></div><div id="fTax"></div></div>
+    </div>
+    <div class="fis-grid2">
+      <div class="card"><div class="card-h"><h2>Ingresos por categoría</h2></div><div id="fCatI"></div></div>
+      <div class="card"><div class="card-h"><h2>Egresos por categoría</h2></div><div id="fCatE"></div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="toolbar fis-tb">
+        <div class="search">${ICON.search}<input class="input" id="fSearch" placeholder="Buscar descripción, cliente, folio…" value="${esc(FS.q)}"></div>
+        <select class="input" id="fTipo"><option value="todo">Ingresos y egresos</option><option value="ingreso" ${FS.tipo === 'ingreso' ? 'selected' : ''}>Solo ingresos</option><option value="egreso" ${FS.tipo === 'egreso' ? 'selected' : ''}>Solo egresos</option></select>
+        <select class="input" id="fCat"><option value="">Todas las categorías</option></select>
+        <select class="input" id="fCta"><option value="">Todas las cuentas</option>${catList('cuentas').map(c => `<option ${FS.cuenta === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+        ${isAdmin() ? `<button class="icon-btn" data-act="fcats" title="Editar categorías y cuentas">${ICON.edit}</button>` : ''}
+      </div>
+      <div class="table-wrap"><div class="table-scroll"><table class="dt fis-dt"><thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Categoría</th><th>Factura</th><th>Cuenta</th><th class="r">Subtotal</th><th class="r">IVA</th><th class="r">Total</th><th></th></tr></thead><tbody id="fBody"></tbody></table></div></div>
+    </div>
+  </section>`;
+  const root = $('#fiscal');
+  const redraw = () => drawFiscal();
+  $('#fMes').onchange = e => { FS.mes = e.target.value || todayISO().slice(0, 7); FS.anio = FS.mes.slice(0, 4); redraw(); };
+  $('#fAnio').onchange = e => { FS.anio = e.target.value; redraw(); };
+  $('#fCob').onchange = e => { FS.cob = e.target.checked; redraw(); };
+  $('#fSearch').addEventListener('input', debounce(e => { FS.q = e.target.value; drawFisTable(); }, 160));
+  $('#fTipo').onchange = e => { FS.tipo = e.target.value; FS.cat = ''; redraw(); };
+  $('#fCat').onchange = e => { FS.cat = e.target.value; redraw(); };
+  $('#fCta').onchange = e => { FS.cuenta = e.target.value; redraw(); };
+  root.addEventListener('click', e => {
+    const per = e.target.closest('[data-per]'); if (per) { FS.per = per.dataset.per; redraw(); return; }
+    const fac = e.target.closest('[data-fac]'); if (fac) { FS.fac = fac.dataset.fac; redraw(); return; }
+    const a = e.target.closest('[data-act]')?.dataset.act;
+    if (a === 'fing') return movForm(null, 'ingreso');
+    if (a === 'fegr') return movForm(null, 'egreso');
+    if (a === 'fexport') return exportFiscal();
+    if (a === 'fimport') return importFinanzas();
+    if (a === 'fcats') return popMenu(e.target.closest('[data-act]'), [
+      { label: 'Categorías de ingreso', icon: 'edit', run: () => catalogManager('catIngreso', 'Categorías de ingreso', redraw) },
+      { label: 'Categorías de egreso', icon: 'edit', run: () => catalogManager('catEgreso', 'Categorías de egreso', redraw) },
+      { label: 'Cuentas', icon: 'wallet', run: () => catalogManager('cuentas', 'Cuentas', () => renderFiscal($('#stage'))) }
+    ]);
+    const fc = e.target.closest('[data-mfac]'); if (fc) { e.stopPropagation(); return cycleFac(fc.dataset.mfac); }
+    const mm = e.target.closest('[data-mmore]'); if (mm) { e.stopPropagation(); return movMenu(mm); }
+    const row = e.target.closest('[data-mov]'); if (row) return movForm(row.dataset.mov);
+  });
+  drawFiscal();
+}
+function drawFiscal() {
+  if (!$('#fiscal')) return;
+  $$('#fPer button').forEach(b => b.classList.toggle('on', b.dataset.per === FS.per));
+  $$('#fFac button').forEach(b => b.classList.toggle('on', b.dataset.fac === FS.fac));
+  $('#fMes').hidden = FS.per !== 'mes'; $('#fAnio').hidden = FS.per !== 'anio';
+  const cats = FS.tipo === 'egreso' ? catList('catEgreso') : FS.tipo === 'ingreso' ? catList('catIngreso') : [...catList('catIngreso'), ...catList('catEgreso')];
+  const extra = [...new Set(allMovs().map(m => m.categoria))].filter(c => c && !cats.includes(c));
+  $('#fCat').innerHTML = `<option value="">Todas las categorías</option>${[...cats, ...extra].map(c => `<option ${FS.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}`;
+  // KPIs
+  const L = fMovs(), I = L.filter(m => m.tipo === 'ingreso'), E = L.filter(m => m.tipo === 'egreso');
+  const ti = sumBy(I, m => m.total), te = sumBy(E, m => m.total), ut = r2(ti - te);
+  const split = list => { const s = sumBy(list.filter(m => m.facturado === true), m => m.total), n = sumBy(list.filter(m => m.facturado === false), m => m.total), c = sumBy(list.filter(m => m.facturado == null), m => m.total); return `<span class="fis-split"><i class="si"></i>${k$(s)} con factura · <i class="no"></i>${k$(n)} sin factura${c ? ` · <i class="nc"></i>${k$(c)} sin clasificar` : ''}</span>`; };
+  const perL = FS.per === 'mes' ? MES[+FS.mes.slice(5) - 1] + ' ' + FS.mes.slice(0, 4) : FS.per === 'anio' ? 'Año ' + FS.anio : 'Todo el historial';
+  $('#fKpis').innerHTML = `
+    <div class="kpi"><small>Ingresos · ${esc(perL)}</small><b class="pos">${k$(ti)}</b>${split(I)}</div>
+    <div class="kpi"><small>Egresos</small><b class="neg">${k$(te)}</b>${split(E)}</div>
+    <div class="kpi ${ut < 0 ? 'bad' : ''}"><small>Flujo neto</small><b>${k$(ut)}</b><span>${ti ? 'Margen ' + (ut / ti * 100).toFixed(1) + '%' : '—'} · ${L.length} movimiento${L.length === 1 ? '' : 's'}</span></div>`;
+  drawFisChart(); drawFisTax(); drawFisCats(L); drawFisTable();
+}
+function drawFisChart() {
+  const y = FS.per === 'mes' ? FS.mes.slice(0, 4) : FS.per === 'anio' ? FS.anio : todayISO().slice(0, 4);
+  $('#fChartY').textContent = y;
+  const base = allMovs().filter(m => String(m.fecha).startsWith(y) && (FS.fac === 'todo' || facKey(m.facturado) === FS.fac) && (!FS.cuenta || m.cuenta === FS.cuenta));
+  const months = Array.from({ length: 12 }, (_, i) => `${y}-${pad(i + 1)}`);
+  const data = months.map(mk => { const l = base.filter(m => String(m.fecha).startsWith(mk)); const g = (t, f) => sumBy(l.filter(m => m.tipo === t && (f ? m.facturado === true : m.facturado !== true)), m => m.total); return { mk, iF: g('ingreso', 1), iN: g('ingreso', 0), eF: g('egreso', 1), eN: g('egreso', 0) }; });
+  const max = Math.max(1, ...data.map(d => Math.max(d.iF + d.iN, d.eF + d.eN)));
+  const W = 640, H = 220, pl = 46, pb = 24, cw = (W - pl) / 12, bw = cw * 0.32, sc = v => (H - pb - 10) * v / max;
+  const tick = [0, .5, 1].map(f => { const v = max * f, yy = H - pb - sc(v); return `<line x1="${pl}" x2="${W}" y1="${yy}" y2="${yy}" class="gl"/><text x="${pl - 6}" y="${yy + 3}" text-anchor="end">${v >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v)}</text>`; }).join('');
+  const bars = data.map((d, i) => {
+    const x = pl + i * cw + cw * 0.15, sel = FS.per === 'mes' && d.mk === FS.mes;
+    const st = (x0, a, b, cA, cB, t) => { const ha = sc(a), hb = sc(b), y0 = H - pb; return `<g><title>${t}: ${k$(a + b)} (con factura ${k$(a)} · sin factura ${k$(b)})</title><rect x="${x0}" y="${y0 - ha}" width="${bw}" height="${ha}" class="${cA}"/><rect x="${x0}" y="${y0 - ha - hb}" width="${bw}" height="${hb}" class="${cB}"/></g>`; };
+    return `${sel ? `<rect x="${pl + i * cw}" y="0" width="${cw}" height="${H - pb + 4}" class="selm"/>` : ''}${st(x, d.iF, d.iN, 'bi', 'bi nf', 'Ingresos')}${st(x + bw + 2, d.eF, d.eN, 'be', 'be nf', 'Egresos')}<text x="${pl + i * cw + cw / 2}" y="${H - 6}" text-anchor="middle">${MES[i]}</text>`;
+  }).join('');
+  $('#fChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="fis-svg" role="img" aria-label="Ingresos y egresos por mes">${tick}${bars}</svg>`;
+}
+/* Estimado mensual: IVA (trasladado − retenido − acreditable) e ISR RESICO (tasa sobre ingresos cobrados sin IVA − ISR retenido) */
+function taxMonth(mk) {
+  const l = allMovs().filter(m => String(m.fecha).startsWith(mk));
+  const IF = l.filter(m => m.tipo === 'ingreso' && m.facturado === true), IN = l.filter(m => m.tipo === 'ingreso' && m.facturado !== true), EF = l.filter(m => m.tipo === 'egreso' && m.facturado === true);
+  const baseF = sumBy(IF, m => m.subtotal), baseN = sumBy(IN, m => m.subtotal != null ? m.subtotal : m.total), ret = sumBy(IF, m => m.retIsr);
+  const ivaT = sumBy(IF, m => m.iva), ivaR = sumBy(IF, m => m.retIva), ivaA = sumBy(EF, m => m.iva);
+  const tF = resicoTasa(baseF), isrF = r2(baseF * tF / 100), tA = resicoTasa(baseF + baseN), isrA = r2((baseF + baseN) * tA / 100);
+  return { baseF, baseN, ret, tF, isrF, tA, isrA, ivaT, ivaR, ivaA, iva: r2(ivaT - ivaR - ivaA), isrPagarF: r2(Math.max(0, isrF - ret)), isrPagarA: r2(Math.max(0, isrA - ret)) };
+}
+function drawFisTax() {
+  const months = FS.per === 'mes' ? [FS.mes] : FS.per === 'anio' ? Array.from({ length: 12 }, (_, i) => `${FS.anio}-${pad(i + 1)}`) : [...new Set(allMovs().map(m => String(m.fecha).slice(0, 7)))];
+  const t = months.map(taxMonth).reduce((a, x) => { Object.keys(x).forEach(k => { a[k] = r2((a[k] || 0) + x[k]); }); return a; }, {});
+  const one = FS.per === 'mes';
+  $('#fTax').innerHTML = `
+    <div class="tax-sec"><b>IVA</b>
+      <div><span>Trasladado (ingresos facturados)</span><b>${k$(t.ivaT || 0)}</b></div>
+      ${t.ivaR ? `<div><span>Retenido por clientes</span><b>-${k$(t.ivaR)}</b></div>` : ''}
+      <div><span>Acreditable (gastos con factura)</span><b>-${k$(t.ivaA || 0)}</b></div>
+      <div class="tot"><span>${(t.iva || 0) >= 0 ? 'IVA a pagar' : 'IVA a favor'}</span><b>${k$(Math.abs(t.iva || 0))}</b></div></div>
+    <div class="tax-sec"><b>ISR RESICO</b>
+      <div><span>Ingresos facturados cobrados (sin IVA)</span><b>${k$(t.baseF || 0)}</b></div>
+      <div><span>Tasa${one ? '' : ' (por mes)'}</span><b>${one ? t.tF.toFixed(2) + '%' : '1% – 2.5%'}</b></div>
+      <div><span>ISR retenido por personas morales</span><b>-${k$(t.ret || 0)}</b></div>
+      <div class="tot"><span>ISR estimado (solo facturado)</span><b>${k$(t.isrPagarF || 0)}</b></div>
+      ${(t.baseN || 0) > 0 ? `<div class="tot alt"><span>Si se suman ingresos sin factura (${k$(t.baseN)})</span><b>${k$(t.isrPagarA || 0)}</b></div>` : ''}</div>
+    <p class="tax-note">En RESICO el ISR se calcula sobre todos los ingresos cobrados del mes; las ventas sin factura se amparan con factura global a público en general. Confirma con tu contador antes de declarar.</p>`;
+}
+function drawFisCats(L) {
+  const block = (tipo, el) => {
+    const l = L.filter(m => m.tipo === tipo), tot = sumBy(l, m => m.total) || 1;
+    const map = new Map(); l.forEach(m => { const k = m.categoria || 'Sin categoría', x = map.get(k) || { f: 0, n: 0 }; x[m.facturado === true ? 'f' : 'n'] += +m.total || 0; map.set(k, x); });
+    const rows = [...map.entries()].sort((a, b) => (b[1].f + b[1].n) - (a[1].f + a[1].n));
+    $(el).innerHTML = rows.length ? rows.map(([k, v]) => `<div class="fcat"><div class="fcat-h"><span>${esc(k)}</span><b>${k$(v.f + v.n)}</b></div><div class="fcat-bar ${tipo}"><i style="width:${v.f / tot * 100}%"></i><i class="nf" style="width:${v.n / tot * 100}%"></i></div></div>`).join('') : '<p class="meta-line">Sin movimientos en el periodo.</p>';
+  };
+  block('ingreso', '#fCatI'); block('egreso', '#fCatE');
+}
+function drawFisTable() {
+  const L = fMovs().sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const facChip = m => `<button class="fchip f-${facKey(m.facturado)}" ${m.auto ? 'disabled title="Se define en Cobranza"' : `data-mfac="${esc(m.id)}" title="Cambiar"`}>${FAC_L[m.facturado === true ? 'true' : m.facturado === false ? 'false' : 'null']}</button>`;
+  $('#fBody').innerHTML = L.length ? L.slice(0, 500).map(m => `
+    <tr data-mov="${esc(m.id)}" class="fis-row">
+      <td>${fmtDate(m.fecha)}</td>
+      <td><span class="ftipo ${m.tipo}">${m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}</span></td>
+      <td><div class="cname"><b>${esc(m.descripcion || '—')}</b><small>${esc(m.contraparte || '')}${m.auto ? ' · <span class="chip">Cobranza</span>' : ''}${m.folio && !m.auto ? ' · ' + esc(m.folio) : ''}</small></div></td>
+      <td>${esc(m.categoria || '—')}</td><td>${facChip(m)}</td><td><small>${esc(m.cuenta || '—')}</small></td>
+      <td class="r money">${k$(m.subtotal != null ? m.subtotal : m.total)}</td><td class="r money">${m.iva ? k$(m.iva) : '—'}</td>
+      <td class="r money"><b class="${m.tipo === 'ingreso' ? 'pos' : 'neg'}">${m.tipo === 'egreso' ? '-' : ''}${k$(m.total)}</b></td>
+      <td class="act">${m.auto ? '' : `<button class="icon-btn" data-mmore="${esc(m.id)}">${ICON.more}</button>`}</td></tr>`).join('') + (L.length > 500 ? `<tr><td colspan="10" class="meta-line">Mostrando 500 de ${L.length}. Usa los filtros o exporta a CSV.</td></tr>` : '')
+    : `<tr><td colspan="10"><div class="empty" style="padding:30px">${ICON.receipt}<b>Sin movimientos</b>Registra un ingreso o egreso, o cambia el periodo y los filtros.</div></td></tr>`;
+}
+const movById = id => (Store.data.movimientos || []).find(m => m.id === id);
+function cycleFac(id) {
+  const m = movById(id); if (!m) return;
+  m.facturado = m.facturado === true ? false : m.facturado === false ? null : true;
+  if (m.facturado !== true) { m.subtotal = m.total; m.iva = 0; m.retIsr = 0; m.retIva = 0; }
+  else { const d = desglose(m.total, true, true, false); Object.assign(m, d, { retIva: 0 }); }
+  m.modificado = new Date().toISOString(); Store.save('movimientos'); drawFiscal();
+  toast(FAC_L[String(m.facturado)] + (m.facturado === true ? ' · IVA 16% calculado; edítalo si no aplica' : ''));
+}
+function movMenu(btn) {
+  const m = movById(btn.dataset.mmore); if (!m) return;
+  popMenu(btn, [
+    { label: 'Editar', icon: 'edit', run: () => movForm(m.id) },
+    { label: 'Duplicar', icon: 'copy', run: () => movForm(null, m.tipo, { ...m, id: undefined, fecha: todayISO() }) },
+    '-',
+    { label: 'Eliminar', icon: 'trash', danger: true, run: async () => { if (!await confirmDialog('Eliminar movimiento', `¿Eliminar <b>${esc(m.descripcion || m.categoria)}</b> por ${k$(m.total)}?`)) return; Store.data.movimientos = Store.data.movimientos.filter(x => x.id !== m.id); Store.save('movimientos'); drawFiscal(); toast('Movimiento eliminado'); } }
+  ]);
+}
+function movForm(id, tipo, copy) {
+  const ex = id ? movById(id) : null;
+  if (id && !ex) { const auto = cobranzaMovs().find(x => x.id === id); if (auto) { toast('Este ingreso viene de Cobranza; edítalo allá'); go('cobranza'); setTimeout(() => cobDetail(auto.bid), 80); } return; }
+  const m = ex ? { ...ex } : { tipo: tipo || 'ingreso', fecha: todayISO(), categoria: '', descripcion: '', contraparte: '', clienteId: '', proyectoId: '', total: '', facturado: true, conIva: true, conRet: false, subtotal: '', iva: '', retIsr: '', retIva: 0, cuenta: catList('cuentas')[0], forma: 'Transferencia', folio: '', notas: '', ...(copy || {}) };
+  if (m.conIva === undefined) m.conIva = !!(+m.iva);
+  if (m.conRet === undefined) m.conRet = !!(+m.retIsr);
+  const cats = () => catList(m.tipo === 'egreso' ? 'catEgreso' : 'catIngreso');
+  const proys = [...Store.data.proyectos].filter(p => p.estatus !== 'cerrado' || p.id === m.proyectoId);
+  openModal({
+    title: `${ex ? 'Editar' : 'Nuevo'} ${m.tipo === 'egreso' ? 'egreso' : 'ingreso'}`, size: 'wide',
+    body: `<div class="grid2">
+      <div class="field span2"><div class="seg" id="mvTipo"><button type="button" data-t="ingreso">Ingreso</button><button type="button" data-t="egreso">Egreso</button></div></div>
+      <div class="field"><label>Fecha <span class="req">*</span></label><input class="input" type="date" name="fecha" value="${esc(m.fecha)}"></div>
+      <div class="field"><label>Categoría <span class="req">*</span></label><select class="input" name="categoria"></select></div>
+      <div class="field span2"><label>Concepto / descripción <span class="req">*</span></label><input class="input" name="descripcion" value="${esc(m.descripcion)}" placeholder="Ej. Filamento PLA 10 kg · Venta llaveros boda"></div>
+      <div class="field"><label id="cpL">Cliente / proveedor</label><input class="input" name="contraparte" value="${esc(m.contraparte)}" list="mvCli"><datalist id="mvCli">${Store.data.clientes.map(c => `<option value="${esc(c.nombre)}">`).join('')}</datalist></div>
+      <div class="field"><label>Proyecto <small class="meta-line">(opcional)</small></label><select class="input" name="proyectoId"><option value="">—</option>${proys.map(p => `<option value="${esc(p.id)}" ${m.proyectoId === p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></div>
+      <div class="field span2 fis-facbox">
+        <label>¿Tiene factura (CFDI)?</label>
+        <div class="seg" id="mvFac"><button type="button" data-f="si">Con factura</button><button type="button" data-f="no">Sin factura</button><button type="button" data-f="nc">Sin clasificar</button></div>
+        <small class="meta-line" id="mvFacNote"></small>
+      </div>
+      <div class="field"><label id="totL">Total <span class="req">*</span></label><input class="input" type="number" min="0" step="0.01" inputmode="decimal" name="total" value="${esc(m.total)}" placeholder="0.00"></div>
+      <div class="field"><label>Cuenta</label><select class="input" name="cuenta">${catList('cuentas').map(c => `<option ${m.cuenta === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}${m.cuenta && !catList('cuentas').includes(m.cuenta) ? `<option selected>${esc(m.cuenta)}</option>` : ''}</select></div>
+      <div class="field span2 fis-taxbox" id="mvTax">
+        <div class="fis-chk"><label><input type="checkbox" name="conIva" ${m.conIva ? 'checked' : ''}> Incluye IVA 16%</label><label id="retWrap"><input type="checkbox" name="conRet" ${m.conRet ? 'checked' : ''}> Cliente persona moral (retiene ISR ${RET_ISR_RESICO}%)</label></div>
+        <div class="grid4">
+          <div class="field"><label>Subtotal</label><input class="input" type="number" step="0.01" name="subtotal" value="${esc(m.subtotal)}"></div>
+          <div class="field"><label>IVA</label><input class="input" type="number" step="0.01" name="iva" value="${esc(m.iva)}"></div>
+          <div class="field" id="retF"><label>Ret. ISR</label><input class="input" type="number" step="0.01" name="retIsr" value="${esc(m.retIsr)}"></div>
+          <div class="field" id="retIvaF"><label>Ret. IVA</label><input class="input" type="number" step="0.01" name="retIva" value="${esc(m.retIva || 0)}"></div>
+        </div>
+        <small class="meta-line">Se calculan solos desde el total; puedes ajustarlos a lo que diga la factura.</small>
+      </div>
+      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${FORMAS_PAGO.map(f => `<option ${m.forma === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><label>Folio / UUID factura</label><input class="input mono" name="folio" value="${esc(m.folio || '')}"></div>
+      <div class="field span2"><label>Notas</label><textarea class="input" name="notas" rows="2">${esc(m.notas || '')}</textarea></div>
+    </div>`,
+    foot: `${ex ? `<button class="btn danger left" data-del>${ICON.trash}Eliminar</button>` : ''}<button class="btn" data-x>Cancelar</button><button class="btn primary" data-save>${ICON.save}Guardar</button>`,
+    onMount(md, close) {
+      const f = n => md.querySelector(`[name=${n}]`);
+      let fac = facKey(m.facturado);
+      const fillCats = () => { const l = cats(); f('categoria').innerHTML = `<option value="">Seleccionar…</option>` + [...l, ...(m.categoria && !l.includes(m.categoria) ? [m.categoria] : [])].map(c => `<option ${m.categoria === c ? 'selected' : ''}>${esc(c)}</option>`).join(''); };
+      const calc = () => {
+        if (fac !== 'si') { f('subtotal').value = f('total').value; f('iva').value = 0; f('retIsr').value = 0; return; }
+        const d = desglose(f('total').value, true, f('conIva').checked, m.tipo === 'ingreso' && f('conRet').checked);
+        f('subtotal').value = d.subtotal.toFixed(2); f('iva').value = d.iva.toFixed(2); f('retIsr').value = d.retIsr.toFixed(2);
+      };
+      const ui = () => {
+        $$('#mvTipo button', md).forEach(b => b.classList.toggle('on', b.dataset.t === m.tipo));
+        $$('#mvFac button', md).forEach(b => b.classList.toggle('on', b.dataset.f === fac));
+        md.querySelector('#mvTax').hidden = fac !== 'si';
+        md.querySelector('#retWrap').hidden = md.querySelector('#retF').hidden = md.querySelector('#retIvaF').hidden = m.tipo !== 'ingreso';
+        md.querySelector('#totL').innerHTML = (m.tipo === 'ingreso' ? 'Total recibido' : 'Total pagado') + ' <span class="req">*</span>';
+        md.querySelector('#mvFacNote').textContent = fac === 'no' ? 'Cuenta como ingreso/gasto del negocio para el análisis, sin IVA. Recuerda: las ventas sin factura se amparan con factura global.' : fac === 'nc' ? 'Queda marcado para revisarlo después.' : '';
+      };
+      fillCats(); ui();
+      md.querySelector('#mvTipo').onclick = e => { const b = e.target.closest('[data-t]'); if (!b) return; m.tipo = b.dataset.t; m.categoria = ''; fillCats(); ui(); calc(); };
+      md.querySelector('#mvFac').onclick = e => { const b = e.target.closest('[data-f]'); if (!b) return; fac = b.dataset.f; ui(); calc(); if (fac === 'no') { const c2 = catList('cuentas')[1]; if (c2 && f('cuenta').value === catList('cuentas')[0]) f('cuenta').value = c2; } };
+      ['total', 'conIva', 'conRet'].forEach(n => f(n).addEventListener(n === 'total' ? 'input' : 'change', calc));
+      if (!ex && !copy) calc();
+      const del = md.querySelector('[data-del]');
+      if (del) del.onclick = async () => { if (!await confirmDialog('Eliminar movimiento', '¿Eliminar este movimiento?')) return; Store.data.movimientos = Store.data.movimientos.filter(x => x.id !== ex.id); Store.save('movimientos'); close(); drawFiscal(); toast('Movimiento eliminado'); };
+      md.querySelector('[data-save]').onclick = () => {
+        const total = r2(parseFloat(f('total').value)), fecha = f('fecha').value, cat = f('categoria').value, desc = f('descripcion').value.trim();
+        let bad = null;
+        if (!fecha) bad = f('fecha'); else if (!cat) bad = f('categoria'); else if (!desc) bad = f('descripcion'); else if (!(total > 0)) bad = f('total');
+        if (bad) { bad.classList.add('invalid'); bad.focus(); return; }
+        const facV = fac === 'si' ? true : fac === 'no' ? false : null;
+        const cli = Store.data.clientes.find(c => c.nombre.toLowerCase() === f('contraparte').value.trim().toLowerCase());
+        const rec = { tipo: m.tipo, fecha, categoria: cat, descripcion: desc, contraparte: f('contraparte').value.trim(), clienteId: cli ? cli.id : '', proyectoId: f('proyectoId').value, total, facturado: facV,
+          conIva: facV === true && f('conIva').checked, conRet: facV === true && m.tipo === 'ingreso' && f('conRet').checked,
+          subtotal: facV === true ? r2(parseFloat(f('subtotal').value) || 0) : total, iva: facV === true ? r2(parseFloat(f('iva').value) || 0) : 0,
+          retIsr: facV === true && m.tipo === 'ingreso' ? r2(parseFloat(f('retIsr').value) || 0) : 0, retIva: facV === true && m.tipo === 'ingreso' ? r2(parseFloat(f('retIva').value) || 0) : 0,
+          cuenta: f('cuenta').value, forma: f('forma').value, folio: f('folio').value.trim(), notas: f('notas').value.trim(), modificado: new Date().toISOString(), by: ME.username };
+        Store.data.movimientos = Store.data.movimientos || [];
+        if (ex) Object.assign(ex, rec); else Store.data.movimientos.unshift({ id: uid(), creado: rec.modificado, ...rec });
+        Store.save('movimientos'); close(); drawFiscal(); toast('Movimiento guardado');
+      };
+    }
+  });
+}
+function exportFiscal() {
+  const L = fMovs().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  const rows = [['Fecha', 'Tipo', 'Categoría', 'Concepto', 'Cliente/Proveedor', 'Factura', 'Cuenta', 'Forma de pago', 'Subtotal', 'IVA', 'Ret. ISR', 'Ret. IVA', 'Total', 'Folio/UUID', 'Origen', 'Notas']];
+  L.forEach(m => rows.push([m.fecha, m.tipo, m.categoria, m.descripcion, m.contraparte, FAC_L[String(m.facturado === true ? true : m.facturado === false ? false : null)], m.cuenta, m.forma, m.subtotal ?? m.total, m.iva || 0, m.retIsr || 0, m.retIva || 0, (m.tipo === 'egreso' ? -1 : 1) * m.total, m.folio || '', m.auto ? 'Cobranza' : 'Manual', m.notas || '']));
+  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  download(`fiscal-tridi-${FS.per === 'mes' ? FS.mes : FS.per === 'anio' ? FS.anio : 'todo'}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+}
+/* Importar transacciones.json de TRIDI Finanzas (la app anterior) */
+function importFinanzas() {
+  openModal({
+    title: 'Importar de TRIDI Finanzas', size: 'narrow',
+    body: `<p class="meta-line" style="margin-top:0">Sube <b>transacciones.json</b> (volumen <code>/app/data</code> de la app de finanzas). Como esa app no distinguía facturas, todo entra como <b>«Sin clasificar»</b> para que lo marques con o sin factura. Los repetidos se omiten.</p>
+      <div class="field"><label>transacciones.json</label><input type="file" class="input" accept=".json,application/json" id="fiFile"></div>
+      <div class="field"><label>Marcar como</label><select class="input" id="fiFac"><option value="nc">Sin clasificar (recomendado)</option><option value="si">Con factura</option><option value="no">Sin factura</option></select></div>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-go>${ICON.download}Importar</button>`,
+    onMount(md, close) {
+      md.querySelector('[data-go]').onclick = async () => {
+        const fl = md.querySelector('#fiFile').files[0]; if (!fl) return toast('Elige el archivo', true);
+        let arr; try { arr = JSON.parse(await fl.text()); } catch (e) { return toast('El archivo no es un JSON válido', true); }
+        if (!Array.isArray(arr)) arr = arr.transacciones || arr.data || [];
+        if (!Array.isArray(arr) || !arr.length) return toast('No se encontraron transacciones', true);
+        const fv = { si: true, no: false, nc: null }[md.querySelector('#fiFac').value];
+        Store.data.movimientos = Store.data.movimientos || [];
+        const seen = new Set(Store.data.movimientos.map(m => m.origenId || `${m.tipo}|${m.fecha}|${m.total}|${m.descripcion}`));
+        let n = 0, skip = 0;
+        arr.forEach(t => {
+          const tipo = t.tipo === 'egreso' ? 'egreso' : 'ingreso', total = r2(+t.monto || 0), fecha = String(t.fecha || '').slice(0, 10);
+          if (!(total > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) { skip++; return; }
+          const key = t.id ? 'fin:' + t.id : `${tipo}|${fecha}|${total}|${t.descripcion || ''}`;
+          if (seen.has(key)) { skip++; return; } seen.add(key);
+          const d = fv === true ? desglose(total, true, true, false) : { subtotal: total, iva: 0, retIsr: 0 };
+          Store.data.movimientos.push({ id: uid(), origenId: key, creado: new Date().toISOString(), tipo, fecha, categoria: t.categoria || (tipo === 'egreso' ? 'Otro gasto' : 'Otro ingreso'), descripcion: t.descripcion || t.categoria || '', contraparte: '', clienteId: '', proyectoId: '', total, facturado: fv, conIva: fv === true, conRet: false, ...d, retIva: 0, cuenta: fv === false ? (catList('cuentas')[1] || '') : catList('cuentas')[0], forma: t.metodoPago || '', folio: '', notas: [t.notas, 'Importado de TRIDI Finanzas'].filter(Boolean).join(' · '), by: ME.username });
+          n++;
+        });
+        Store.save('movimientos'); close(); FS.per = 'todo'; FS.fac = fv === null ? 'nc' : 'todo'; drawFiscal();
+        toast(`${n} movimientos importados${skip ? ` · ${skip} omitidos (repetidos o sin datos)` : ''}`);
+      };
+    }
+  });
+}
+
 /* ================= Módulos en construcción ================= */
 const SOON_INFO = {
   fiscal: { t: 'Fiscal', d: 'Ingresos y egresos (de TRIDI Finanzas), IVA trasladado y acreditable, retenciones, estimado de ISR RESICO, ventas con y sin factura, factura global y timbrado CFDI 4.0 vía PAC.', f: 'Fase 3' }
@@ -3319,7 +3653,7 @@ const NOTAS_DEFAULT = cur => [
 const OBS_DEFAULT = NOTAS_DEFAULT('MXN');
 const SECCIONES_DEF = ['Impresión 3D', 'Grabado láser', 'Corte láser', 'DTF UV', 'Promocionales', 'Modelado / diseño', 'Envío'];
 const UNIDADES_DEF = ['PZA', 'LOTE', 'SERVICIO', 'HORA', 'JUEGO', 'KIT'];
-const CAT_DEF = { secciones: SECCIONES_DEF, unidades: UNIDADES_DEF, sistemas: SERVICIOS };
+const CAT_DEF = { secciones: SECCIONES_DEF, unidades: UNIDADES_DEF, sistemas: SERVICIOS, catIngreso: CAT_ING_DEF, catEgreso: CAT_EGR_DEF, cuentas: CUENTAS_DEF };
 const catList = k => (Store.data.catalogos && Array.isArray(Store.data.catalogos[k]) ? Store.data.catalogos[k] : CAT_DEF[k] || []);
 const r2 = n => Math.round((+n || 0) * 100) / 100;
 const addDaysISO = (iso, n) => { const d = parseD(iso) || new Date(); d.setDate(d.getDate() + n); return localISO(d); };

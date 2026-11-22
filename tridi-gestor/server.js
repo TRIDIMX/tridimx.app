@@ -160,9 +160,10 @@ function dbFor(u) {
   else if (can(u, 'proyectos')) { out.board = db.board || null; out.config = db.config || null; } // solo lectura para calcular avances
   if (can(u, 'presupuesto')) out.presupuestos = db.presupuestos || [];
   else if (can(u, 'proyectos')) out.presupuestos = (db.presupuestos || []).map(({ data, ...r }) => r);
-  else if (can(u, 'cobranza')) out.presupuestos = (db.presupuestos || []).map(({ data, ...r }) => ({ ...r, data: data ? { obra: data.obra, rev: data.rev, personaMoral: data.personaMoral } : null }));
+  else if (can(u, 'cobranza') || can(u, 'fiscal')) out.presupuestos = (db.presupuestos || []).map(({ data, ...r }) => ({ ...r, data: data ? { obra: data.obra, rev: data.rev, personaMoral: data.personaMoral } : null }));
   if (can(u, 'proyectos') || u.role === 'admin') out.proyectos = db.proyectos || [];
-  if (can(u, 'cobranza')) out.cobranza = db.cobranza || {};
+  if (can(u, 'cobranza') || can(u, 'fiscal')) out.cobranza = db.cobranza || {};
+  if (can(u, 'fiscal')) out.movimientos = db.movimientos || [];
   if (can(u, 'reporte')) out.reportes = db.reportes || [];
   else if (can(u, 'actividades') || can(u, 'proyectos')) out.reportes = (db.reportes || []).map(({ data, ...r }) => can(u, 'proyectos')
     ? { ...r, data: { componentes: ((data && data.componentes) || []).map(c => ({ sistema: c.sistema, estado: c.estado, observacion: c.observacion })) } } : r);
@@ -170,7 +171,7 @@ function dbFor(u) {
   out.colPrefs = (db.colPrefs || {})[u.username] || null;
   return out;
 }
-const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', catalogos: 'admin', seeded: null, colPrefs: null };
+const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal', catalogos: 'admin', seeded: null, colPrefs: null };
 
 /* ---------- Validación de usuarios ---------- */
 function cleanUserInput(b, isNew) {

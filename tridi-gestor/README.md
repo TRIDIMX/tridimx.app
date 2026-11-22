@@ -1,4 +1,17 @@
-# TRIDI MX · Gestor (v6.3)
+# TRIDI MX · Gestor (v6.4)
+
+## Novedades v6.4 — Fiscal (análisis, sin PAC)
+- Movimientos de **ingresos y egresos**: registrar, editar, duplicar y eliminar (permiso `fiscal`).
+- Cada movimiento se marca **Con factura / Sin factura / Sin clasificar**; filtro en toda la pantalla, KPIs y gráficas
+  con el desglose. Clic en la etiqueta de la tabla para cambiarla rápido.
+- Desglose automático desde el total: subtotal, IVA 16 % y retención ISR 1.25 % (cliente persona moral); editable.
+- Los **pagos de Cobranza** entran solos como ingresos (con/sin factura según la cuenta en Cobranza); se pueden ocultar.
+- Gráfica mensual, ingresos/egresos por categoría, CSV, cuentas y categorías editables (admin).
+- **Estimado informativo**: IVA a pagar (trasladado − retenido − acreditable) e ISR RESICO (tasa del mes sobre ingresos
+  cobrados sin IVA − ISR retenido), solo facturado y sumando lo no facturado.
+- Importador de `transacciones.json` de TRIDI Finanzas (entra como «Sin clasificar», omite repetidos).
+
+# v6.3
 
 ## Novedades v6.3 — Importar PDF / XML en Proyectos
 - Botón **«Importar PDF / XML»** en Proyectos: presupuestos (TRIDI u otros) y facturas CFDI en PDF o **XML (datos exactos)**.
