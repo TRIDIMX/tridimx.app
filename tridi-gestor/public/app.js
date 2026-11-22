@@ -78,11 +78,20 @@ const ESTATUS = [
 ];
 const ORIGENES = ['Recomendación', 'Cliente recurrente', 'WhatsApp', 'Mercado Libre', 'Tienda en línea (Shopify)', 'Sitio web', 'Redes sociales', 'Expo / evento', 'Otro'];
 const SERVICIOS = ['Impresión 3D FDM', 'Impresión 3D resina', 'Grabado láser UV', 'Corte / grabado CO2', 'Impresión DTF UV', 'Artículos promocionales', 'Modelado 3D', 'Escaneo 3D', 'Diseño gráfico', 'Envío'];
+const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+const RFC_GENERICOS = ['XAXX010101000', 'XEXX010101000'];
+const REGIMENES = [
+  { k: '601', l: 'General de Ley Personas Morales' }, { k: '603', l: 'Personas Morales con Fines no Lucrativos' },
+  { k: '605', l: 'Sueldos y Salarios' }, { k: '606', l: 'Arrendamiento' }, { k: '612', l: 'Personas Físicas con Actividades Empresariales y Profesionales' },
+  { k: '616', l: 'Sin obligaciones fiscales' }, { k: '621', l: 'Incorporación Fiscal' }, { k: '625', l: 'Plataformas Tecnológicas' },
+  { k: '626', l: 'Régimen Simplificado de Confianza (RESICO)' }
+];
+const clientLabel = c => `${c.nombre}${c.rfc ? ' · ' + c.rfc : ''}`;
 const svcClass = s => 'c' + (Math.max(0, SERVICIOS.indexOf(s)) % 10);
 const TIPOS = [
-  { k: 'Visita técnica', c: '#2563eb' }, { k: 'Levantamiento', c: '#0f8a7a' }, { k: 'Instalación', c: '#4f46e5' },
-  { k: 'Reparación', c: '#be1e1e' }, { k: 'Mantenimiento', c: '#b7791f' }, { k: 'Reunión con cliente', c: '#7c3aed' },
-  { k: 'Entrega', c: '#15803d' }
+  { k: 'Diseño / modelado', c: '#2563eb' }, { k: 'Impresión 3D', c: '#1a8f79' }, { k: 'Grabado / corte láser', c: '#f26522' },
+  { k: 'DTF UV', c: '#7c3aed' }, { k: 'Post-proceso / armado', c: '#b7791f' }, { k: 'Reunión con cliente', c: '#4f46e5' },
+  { k: 'Compra de insumos', c: '#475569' }, { k: 'Entrega', c: '#15803d' }
 ];
 const tipoColor = k => (TIPOS.find(t => t.k === k) || { c: '#94a3b8' }).c;
 const PALETTE = [
@@ -209,11 +218,12 @@ const Store = {
       try { const s = localStorage.getItem('agis-db'); if (s) Object.assign(this.data, JSON.parse(s)); this.mode = 'local'; }
       catch (_) { this.mode = 'memory'; }
     }
-    if (!this.data.config) this.data.config = { equipo: ['Luis Gómez', 'Diego', 'Omar'] };
+    if (!this.data.config) this.data.config = { equipo: [] };
     if (!Array.isArray(this.data.clientes)) this.data.clientes = [];
     if (!Array.isArray(this.data.reportes)) this.data.reportes = [];
     if (!Array.isArray(this.data.presupuestos)) this.data.presupuestos = [];
     if (!Array.isArray(this.data.proyectos)) this.data.proyectos = [];
+    if (!this.data.cobranza || typeof this.data.cobranza !== 'object') this.data.cobranza = {};
     if (!this.data.catalogos) this.data.catalogos = { secciones: [...SECCIONES_DEF], unidades: [...UNIDADES_DEF] };
     if (!this.data.board) { this.data.board = seedBoard(); if (can('actividades')) this.save('board'); }
     if (!this.data.seeded && !this.data.clientes.length && can('clientes')) {
@@ -231,10 +241,10 @@ const Store = {
   async reload() {
     if (this.mode !== 'api') return;
     const fresh = await Api.req('GET', 'api/db');
-    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
+    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos', 'cobranza'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
   },
   save(key) {
-    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos' }[key];
+    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza' }[key];
     if (need && !can(need)) return;
     if (key === 'catalogos' && !isAdmin()) return;
     if (this.mode === 'api') {
@@ -247,22 +257,12 @@ const Store = {
 };
 
 function seedBoard() {
-  const t = new Date(), d = n => { const x = new Date(t); x.setDate(x.getDate() + n); return localISO(x); };
   return {
     columns: [
-      { id: uid(), name: 'Por programar', color: 'gris', cards: [
-        { id: uid(), title: 'Levantamiento para automatización de iluminación', tipo: 'Levantamiento', clienteId: '', clienteTxt: 'Residencia Bosques', fecha: d(4), hora: '10:00', responsables: ['Luis Gómez'], direccion: '', notas: '', created: new Date().toISOString(), demo: true }
-      ] },
-      { id: uid(), name: 'Programadas', color: 'azul', cards: [
-        { id: uid(), title: 'Visita técnica — revisión de CCTV', tipo: 'Visita técnica', clienteId: '', clienteTxt: 'Torre Polanco 4B', fecha: d(1), hora: '09:30', responsables: ['Diego'], direccion: '', notas: '', created: new Date().toISOString(), demo: true },
-        { id: uid(), title: 'Reunión de presentación de propuesta Home Theater', tipo: 'Reunión con cliente', clienteId: '', clienteTxt: 'Casa Interlomas', fecha: d(2), hora: '17:00', responsables: ['Luis Gómez'], direccion: '', notas: '', created: new Date().toISOString(), demo: true }
-      ] },
-      { id: uid(), name: 'En proceso', color: 'ambar', cards: [
-        { id: uid(), title: 'Instalación audio multizona planta alta', tipo: 'Instalación', clienteId: '', clienteTxt: 'Residencia Lomas', fecha: d(0), hora: '08:00', responsables: ['Diego', 'Omar'], direccion: '', notas: '', created: new Date().toISOString(), demo: true }
-      ] },
-      { id: uid(), name: 'Completadas', color: 'verde', done: true, cards: [
-        { id: uid(), title: 'Reparación de telefonía IP', tipo: 'Reparación', clienteId: '', clienteTxt: 'Hotel TRU Aeropuerto', fecha: d(-3), hora: '', responsables: ['Luis Gómez'], direccion: '', notas: '', created: new Date().toISOString(), demo: true }
-      ] }
+      { id: uid(), name: 'Por hacer', color: 'gris', cards: [] },
+      { id: uid(), name: 'En producción', color: 'azul', cards: [] },
+      { id: uid(), name: 'Listo para entrega', color: 'ambar', cards: [] },
+      { id: uid(), name: 'Entregado', color: 'verde', done: true, cards: [] }
     ]
   };
 }
@@ -373,9 +373,10 @@ const MODULES = [
   { k: 'actividades', t: 'Actividades', s: 'Equipo en campo', icon: 'kanban', hue: 'h-teal', render: renderActividades },
   { k: 'presupuesto', t: 'Presupuesto', s: 'Propuestas comerciales', icon: 'cash', hue: 'h-green', render: renderPresupuesto },
   { k: 'proyectos', t: 'Proyectos', s: 'Avance y seguimiento', icon: 'folder', hue: 'h-slate', render: renderProyectos },
-  { k: 'cobranza', t: 'Cobranza', s: 'Pagos, anticipos y saldos', icon: 'wallet', hue: 'h-amber', render: st => renderSoon(st, 'cobranza') },
+  { k: 'cobranza', t: 'Cobranza', s: 'Pagos, anticipos y saldos', icon: 'wallet', hue: 'h-amber', render: renderCobranza },
   { k: 'fiscal', t: 'Fiscal', s: 'IVA, retenciones e ISR RESICO', icon: 'receipt', hue: 'h-indigo', render: st => renderSoon(st, 'fiscal') },
-  { k: 'produccion', t: 'Control Producción', s: 'Ocupación de impresoras', icon: 'printer', hue: 'h-teal', render: st => renderSoon(st, 'produccion') },
+  { k: 'produccion', t: 'Control Producción', s: 'Ocupación de impresoras', icon: 'printer', hue: 'h-teal', render: renderProduccion },
+  { k: 'taller', t: 'Pantalla del taller', s: 'Vista TV', icon: 'eye', hue: 'h-slate', render: renderTaller },
   { k: 'monitor', t: 'Monitor', s: 'Tiempo real', icon: 'pulse', hue: 'h-rose', adminOnly: true, render: renderMonitor },
   { k: 'usuarios', t: 'Usuarios', s: 'Accesos y perfiles', icon: 'shield', hue: 'h-navy', adminOnly: true, render: renderUsuarios }
 ];
@@ -386,7 +387,7 @@ const NAV_GROUPS = [
   { t: null, items: ['__home'] },
   { t: 'Operación', items: ['clientes', 'proyectos', 'actividades'] },
   { t: 'Finanzas', items: ['presupuesto', 'cobranza', 'fiscal'] },
-  { t: 'Taller', items: ['produccion'] },
+  { t: 'Taller', items: ['produccion', 'taller'] },
   { t: 'Administración', items: ['monitor', 'usuarios'] }
 ];
 const isMobile = () => matchMedia('(max-width: 760px)').matches;
@@ -400,7 +401,7 @@ function buildBand() { // nombre conservado: construye la barra lateral
     const html = g.items.map(item).join('');
     return html ? `<div class="sb-group">${g.t ? `<div class="sb-gt"><span>${esc(g.t)}</span></div>` : ''}${html}</div>` : '';
   }).join('');
-  markActive();
+  markActive(); cobBadge();
   if (window._sbBound) return; window._sbBound = true;
   $('#sbNav').addEventListener('click', e => {
     const b = e.target.closest('.sb-item'); if (!b) return;
@@ -432,7 +433,7 @@ function go(k, opts = {}) {
   if (m && !allowed(m)) { toast('No tienes acceso a ese módulo', true); m = null; }
   if (!m || m.k !== 'monitor') { document.body.classList.remove('tv'); clearInterval(monTimer); }
   $('#stage').classList.toggle('wide', !!m && m.k === 'actividades');
-  $('#stage').classList.toggle('xwide', !!m && m.k === 'monitor');
+  $('#stage').classList.toggle('xwide', !!m && (m.k === 'monitor' || m.k === 'produccion'));
   if (m && m.k === 'proyectos' && current !== 'proyectos' && !opts.keepView) { /* conserva la vista */ }
   if (popClose) popClose();
   if (!m) {
@@ -475,8 +476,8 @@ function searchIndex(q) {
   if (can('clientes')) Store.data.clientes.forEach(c => {
     if (isSchema2()) {
       const ps = projectsOf(c.id), sal = saldoOf(c.id);
-      if (hit([c.nombre, c.id, c.email, c.telefono, ps.map(p => p.nombre).join(' ')].join(' ')))
-        out.push({ type: 'cliente', id: c.id, title: c.nombre, sub: `${c.id} · ${ps.length} proyecto${ps.length === 1 ? '' : 's'}${sal > 0 ? ' · Saldo ' + fmtSaldo(clientSaldo(c.id)) : ''}${c.porCompletar ? ' · Por completar' : ''}` });
+      if (hit([c.nombre, c.id, c.rfc, c.razonSocial, c.email, c.telefono, ps.map(p => p.nombre).join(' ')].join(' ')))
+        out.push({ type: 'cliente', id: c.id, title: c.nombre, sub: `${c.rfc ? c.rfc + " · " : ""}${ps.length} proyecto${ps.length === 1 ? '' : 's'}${sal > 0 ? ' · Saldo ' + fmtSaldo(clientSaldo(c.id)) : ''}${c.porCompletar ? ' · Por completar' : ''}` });
     } else if (hit([c.nombre, c.id, c.contacto, c.origen, c.email, c.telefono, c.direccion, (c.servicios || []).join(' ')].join(' ')))
       out.push({ type: 'cliente', id: c.id, title: c.nombre, sub: `${c.id} · ${ESTATUS.find(s => s.k === c.estatus)?.l || ''}${+c.saldo > 0 ? ' · Saldo ' + MXN.format(c.saldo) : ''}` });
   });
@@ -510,6 +511,7 @@ function renderLanding(stage) {
   stage.innerHTML = `
   <section class="landing">
     <img class="landing-mark" alt="TRIDI MX" src="${window.AGIS_LOGOS ? (AGIS_LOGOS.full || AGIS_LOGOS.mark) : ''}">
+    ${(() => { if (!can('cobranza')) return ''; const v = cobOverdue(); if (!v.length) return ''; const tot = v.reduce((a, s) => a + s.saldo, 0); return `<button class="land-alert" data-golate>${ICON.wallet}<span><b>${v.length} cuenta${v.length > 1 ? 's' : ''} vencida${v.length > 1 ? 's' : ''}</b> · $${AGIS_money(tot)} por cobrar</span>${ICON.right}</button>`; })()}
     <div class="gsearch-wrap" id="gWrap">
       <div class="gsearch">${ICON.search}
         <input id="gInput" type="search" placeholder="¿Qué estás buscando?" autocomplete="off" aria-label="Buscar">
@@ -518,6 +520,7 @@ function renderLanding(stage) {
       <div class="gresults" id="gRes" role="listbox"></div>
     </div>
   </section>`;
+  const la = stage.querySelector('[data-golate]'); if (la) la.onclick = () => { CB.tab = 'vencidas'; go('cobranza'); };
   const inp = $('#gInput'), wrap = $('#gWrap'), res = $('#gRes');
   let items = [], sel = -1;
   const hl = (t, q) => { let h = esc(t); q.trim().split(/\s+/).filter(x => x.length > 1).forEach(w => { const re = new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); h = h.replace(re, '<mark>$1</mark>'); }); return h; };
@@ -563,7 +566,7 @@ function openResult(it) {
 const isSchema2 = () => ((Store.data && Store.data.schema) || 1) >= 2;
 const projectsOf = cid => Store.data.proyectos.filter(p => p.clienteId === cid);
 /* Saldo pendiente = suma de los presupuestos vinculados a los proyectos (separado por moneda) */
-function projSaldo(p) { const t = { MXN: 0, USD: 0, n: 0 }; projBudgets(p).forEach(b => { t[b.moneda === 'USD' ? 'USD' : 'MXN'] += +b.total || 0; t.n++; }); return t; }
+function projSaldo(p) { const t = { MXN: 0, USD: 0, n: 0 }; projBudgets(p).forEach(b => { const st = cobState(b.id); if (!st || st.estado === 'cancelado') return; t[b.moneda === 'USD' ? 'USD' : 'MXN'] += Math.max(0, st.saldo); t.n++; }); return t; }
 function clientSaldo(cid) { const t = { MXN: 0, USD: 0, n: 0 }; projectsOf(cid).forEach(p => { const x = projSaldo(p); t.MXN += x.MXN; t.USD += x.USD; t.n += x.n; }); return t; }
 const fmtSaldo = t => (t.USD && !t.MXN ? `US$${AGIS_money(t.USD)}` : MXN.format(t.MXN) + (t.USD ? ` + US$${AGIS_money(t.USD)}` : ''));
 const saldoOf = cid => { const t = clientSaldo(cid); return t.MXN + t.USD; };
@@ -726,7 +729,7 @@ function renderClientes(stage) {
 const CS2 = { tab: 'all', q: '', page: 1, sel: new Set(), sort: 'nombre', dir: 1, origen: '', servicio: '', saldo: false, from: '', to: '' };
 const projChips = cid => { const ps = projectsOf(cid); return ps.length ? `<div class="chips">${ps.slice(0, 3).map(p => `<span class="chip pchipx" style="--sc:${pestOf(p.estatus).c}"><i></i>${esc(p.nombre)}</span>`).join('')}${ps.length > 3 ? `<span class="chip">+${ps.length - 3}</span>` : ''}</div>` : '<span class="meta-line">Sin proyectos</span>'; };
 const CLIENT2_COLS = [
-  { k: 'id', l: 'ID', sort: true, w: 110, render: c => `<span class="mono">${esc(c.id)}</span>` },
+  { k: 'rfc', l: 'RFC', sort: true, def: true, w: 140, render: c => c.rfc ? `<span class="mono">${esc(c.rfc)}</span>${c.rfc.length === 12 ? ' <small class="meta-line">PM</small>' : ''}` : '<span class="meta-line">—</span>' },
   { k: 'telefono', l: 'Teléfono', def: true, w: 130, render: c => esc(c.telefono || '—') },
   { k: 'email', l: 'Correo', sort: true, def: true, w: 190, render: c => esc(c.email || '—') },
   { k: 'proyectos', l: 'Proyectos', def: true, w: 280, cls: () => 'svc', render: c => `<button class="cell-btn" data-projs="${esc(c.id)}" title="Ver proyectos">${projChips(c.id)}</button>` },
@@ -875,8 +878,11 @@ function clientForm2(c) {
     body: `${!isNew ? `<div class="meta-line">Creado ${fmtDate(c.creado)} · Modificado ${fmtDate(c.modificado)}</div>` : ''}
       ${c.porCompletar ? `<div class="pend-box">${ICON.edit}<span>Este cliente se creó con un nombre provisional durante la migración. Escribe el nombre real del contacto.</span></div>` : ''}
       <div class="grid2">
-        <div class="field"><label>ID del cliente <span class="req">*</span></label><input class="input mono" name="cid" value="${esc(isNew ? nextClientId() : c.id)}" maxlength="30"></div>
-        <div class="field"><label>Nombre del cliente <span class="req">*</span></label><input class="input" name="nombre" value="${esc(c.nombre)}" placeholder="Persona o empresa" autofocus></div>
+        <div class="field"><label>Nombre del cliente / contacto <span class="req">*</span></label><input class="input" name="nombre" value="${esc(c.nombre)}" placeholder="Persona o empresa" autofocus></div>
+        <div class="field"><label>RFC <small class="meta-line">(12 = persona moral · 13 = persona física)</small></label><input class="input mono" name="rfc" value="${esc(c.rfc || '')}" maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase"></div>
+        <div class="field"><label>Razón social <small class="meta-line">(como aparece en su constancia)</small></label><input class="input" name="razonSocial" value="${esc(c.razonSocial || '')}"></div>
+        <div class="field"><label>Régimen fiscal</label><select class="input" name="regimen"><option value="">—</option>${REGIMENES.map(r => `<option value="${r.k}" ${c.regimen === r.k ? 'selected' : ''}>${r.k} · ${esc(r.l)}</option>`).join('')}</select></div>
+        <div class="field"><label>C.P. fiscal</label><input class="input mono" name="cp" value="${esc(c.cp || '')}" maxlength="5" inputmode="numeric"></div>
         <div class="field"><label>Teléfono</label><input class="input" name="telefono" type="tel" value="${esc(c.telefono)}"></div>
         <div class="field"><label>Correo</label><input class="input" name="email" type="email" value="${esc(c.email)}"></div>
         <div class="field span2"><label>Notas</label><textarea class="input" name="notas" rows="3">${esc(c.notas)}</textarea></div>
@@ -892,12 +898,14 @@ function clientForm2(c) {
       });
       m.querySelector('[data-del]')?.addEventListener('click', () => { close(); deleteClient2(c); });
       m.querySelector('[data-save]').onclick = () => {
-        const nombre = f('nombre').value.trim(), cid = f('cid').value.trim();
+        const nombre = f('nombre').value.trim(), cid = isNew ? nextClientId() : c.id;
+        const rfc = f('rfc').value.trim().toUpperCase().replace(/\s+/g, ''), cp = f('cp').value.trim();
         if (!nombre) { f('nombre').classList.add('invalid'); f('nombre').focus(); return; }
-        if (!cid) { f('cid').classList.add('invalid'); return; }
-        if (Store.data.clientes.some(x => x.id.toLowerCase() === cid.toLowerCase() && (isNew || x.id !== c.id))) { f('cid').classList.add('invalid'); return toast(`El ID ${cid} ya está asignado`, true); }
+        if (rfc && !RFC_RE.test(rfc)) { f('rfc').classList.add('invalid'); f('rfc').focus(); return toast('RFC con formato inválido', true); }
+        if (rfc && !RFC_GENERICOS.includes(rfc) && Store.data.clientes.some(x => (x.rfc || '') === rfc && x.id !== c.id)) { f('rfc').classList.add('invalid'); return toast(`El RFC ${rfc} ya está registrado en otro cliente`, true); }
+        if (cp && !/^\d{5}$/.test(cp)) { f('cp').classList.add('invalid'); return toast('El C.P. debe tener 5 dígitos', true); }
         const now = new Date().toISOString();
-        const rec = { nombre, telefono: f('telefono').value.trim(), email: f('email').value.trim(), notas: f('notas').value.trim(), modificado: now, porCompletar: false, demo: false };
+        const rec = { nombre, rfc, razonSocial: f('razonSocial').value.trim(), regimen: f('regimen').value, cp, telefono: f('telefono').value.trim(), email: f('email').value.trim(), notas: f('notas').value.trim(), modificado: now, porCompletar: false, demo: false };
         if (isNew) { Store.data.clientes.unshift({ id: cid, creado: now, ...rec }); toast('Cliente registrado'); }
         else {
           const i = Store.data.clientes.findIndex(x => x.id === c.id);
@@ -1544,7 +1552,7 @@ function cardForm(k, colId, preset = {}) {
       <div class="field"><label>Columna</label><select class="input" name="col">${cols.map(c => `<option value="${c.id}" ${c.id === colId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
       <div class="field"><label>Proyecto</label><select class="input" name="proyectoId"><option value="">— Sin proyecto —</option>${proyectos.map(x => `<option value="${x.id}" ${k.proyectoId === x.id ? 'selected' : ''}>${esc(x.codigo)} · ${esc(x.nombre)}</option>`).join('')}</select></div>
       <div class="field"><label>Sistema</label><select class="input" name="sistemaId" ${k.proyectoId ? '' : 'disabled'}>${sysOpts(k.proyectoId)}</select></div>
-      <div class="field span2"><label>Cliente</label><select class="input" name="clienteId"><option value="">— Sin cliente registrado —</option>${clientes.map(c => `<option value="${esc(c.id)}" ${k.clienteId === c.id ? 'selected' : ''}>${esc(c.nombre)} · ${esc(c.id)}</option>`).join('')}</select></div>
+      <div class="field span2"><label>Cliente</label><select class="input" name="clienteId"><option value="">— Sin cliente registrado —</option>${clientes.map(c => `<option value="${esc(c.id)}" ${k.clienteId === c.id ? 'selected' : ''}>${esc(clientLabel(c))}</option>`).join('')}</select></div>
       <div class="field span2" id="ctxtWrap" ${k.clienteId ? 'hidden' : ''}><label>Cliente / lugar (texto libre)</label><input class="input" name="clienteTxt" value="${esc(k.clienteTxt)}" placeholder="Si aún no está dado de alta"></div>
       <div class="field"><label>Fecha</label><input class="input" type="date" name="fecha" value="${esc(k.fecha)}"></div>
       <div class="field"><label>Hora</label><input class="input" type="time" name="hora" value="${esc(k.hora)}"></div>
@@ -2549,15 +2557,262 @@ function pickBudgetForProject() {
   });
 }
 
+/* ================= COBRANZA ================= */
+const FORMAS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Depósito', 'Cheque', 'Otro'];
+const TIPOS_PAGO = { anticipo: 'Anticipo', pago: 'Pago parcial', liquidacion: 'Liquidación' };
+const CB = { tab: 'abiertas', q: '' };
+const cobMap = () => (Store.data.cobranza = Store.data.cobranza || {});
+const budgetById = id => Store.data.presupuestos.find(b => b.id === id);
+const daysFrom = iso => { const d = parseD(iso); if (!d) return 0; const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((t - d) / 864e5); };
+/* Estado de cobro de un presupuesto (null si no está en Cobranza) */
+function cobState(bid) {
+  const c = cobMap()[bid], b = budgetById(bid);
+  if (!c || !b) return null;
+  const total = r2(b.total), pagado = r2((c.pagos || []).reduce((a, p) => a + (+p.monto || 0), 0)), saldo = r2(total - pagado);
+  const vencido = saldo > 0.009 && c.vence ? Math.max(0, daysFrom(c.vence)) : 0;
+  const estado = c.cancelado ? 'cancelado' : saldo <= 0.009 ? 'pagado' : vencido > 0 ? 'vencido' : pagado > 0 ? 'parcial' : 'pendiente';
+  return { b, c, total, pagado, saldo, vencido, estado, moneda: b.moneda || 'MXN' };
+}
+const COB_EST = {
+  pendiente: { l: 'Pendiente', c: '#475569', bg: '#f2f4f7' }, parcial: { l: 'Pago parcial', c: '#1a8f79', bg: '#e6f8f3' },
+  vencido: { l: 'Vencido', c: '#be1e1e', bg: '#fef1f1' }, pagado: { l: 'Pagado', c: '#15803d', bg: '#ecfdf3' }, cancelado: { l: 'Cancelado', c: '#9aa1ad', bg: '#f5f6f8' }
+};
+const cobPill = e => `<span class="cob-pill" style="--cc:${COB_EST[e].c};--cb:${COB_EST[e].bg}">${COB_EST[e].l}</span>`;
+function cobAll() { return Object.keys(cobMap()).map(cobState).filter(Boolean); }
+function cobOverdue() { return cobAll().filter(s => s.estado === 'vencido'); }
+function cobBadge() {
+  const el = $('.sb-item[data-mod=cobranza]'); if (!el) return;
+  const n = can('cobranza') ? cobOverdue().length : 0;
+  let bd = el.querySelector('.sb-badge');
+  if (!n) { if (bd) bd.remove(); return; }
+  if (!bd) { bd = document.createElement('span'); bd.className = 'sb-badge'; el.appendChild(bd); }
+  bd.textContent = n; bd.title = `${n} cuenta${n > 1 ? 's' : ''} vencida${n > 1 ? 's' : ''}`;
+}
+function addToCobranza(bid, opts = {}) {
+  const b = budgetById(bid); if (!b) return toast('El presupuesto ya no existe', true);
+  const m = cobMap();
+  if (!m[bid]) m[bid] = { alta: todayISO(), metodo: 'PUE', factura: true, vence: opts.vence || todayISO(), pagos: [], by: ME.username };
+  Store.save('cobranza'); cobBadge();
+  return m[bid];
+}
+function renderCobranza(stage) {
+  stage.innerHTML = `
+  <section class="panel" id="cobranza">
+    <div class="view-head">
+      <div><h1>Cobranza</h1><p>Pagos y anticipos por presupuesto aprobado, saldos pendientes y cuentas vencidas.</p></div>
+      <div class="actions"><button class="btn" data-act="cexport">${ICON.download}Exportar</button><button class="btn primary" data-act="cadd">${ICON.plus}Agregar presupuesto</button></div>
+    </div>
+    <div class="kpis cob-kpis" id="cbKpis"></div>
+    <div class="tabs" id="cbTabs"></div>
+    <div class="toolbar"><div class="search">${ICON.search}<input class="input" id="cbSearch" placeholder="Buscar folio, cliente, RFC o proyecto…" value="${esc(CB.q)}"></div></div>
+    <div class="table-wrap"><div class="table-scroll"><table class="dt cob-dt"><thead><tr><th>Folio / proyecto</th><th>Cliente</th><th>Método</th><th class="r">Total</th><th class="r">Pagado</th><th class="r">Saldo</th><th>Vence</th><th>Estado</th><th></th></tr></thead><tbody id="cbBody"></tbody></table></div></div>
+  </section>`;
+  const root = $('#cobranza');
+  $('#cbSearch').addEventListener('input', debounce(e => { CB.q = e.target.value; drawCobranza(); }, 160));
+  root.addEventListener('click', e => {
+    const t = e.target.closest('[data-cbtab]'); if (t) { CB.tab = t.dataset.cbtab; drawCobranza(); return; }
+    const a = e.target.closest('[data-act]')?.dataset.act;
+    if (a === 'cadd') return pickBudgetForCobranza();
+    if (a === 'cexport') return exportCobranza();
+    const row = e.target.closest('[data-cbid]'); if (row) return cobDetail(row.dataset.cbid);
+  });
+  drawCobranza();
+}
+const COB_TABS = [
+  { k: 'abiertas', l: 'Por cobrar', f: s => ['pendiente', 'parcial', 'vencido'].includes(s.estado) },
+  { k: 'vencidas', l: 'Vencidas', f: s => s.estado === 'vencido' },
+  { k: 'pagadas', l: 'Pagadas', f: s => s.estado === 'pagado' },
+  { k: 'todas', l: 'Todas', f: () => true }
+];
+function drawCobranza() {
+  if (!$('#cobranza')) return;
+  const all = cobAll();
+  const mxn = all.filter(s => s.moneda !== 'USD' && s.estado !== 'cancelado');
+  const porCobrar = mxn.reduce((a, s) => a + Math.max(0, s.saldo), 0), vencido = mxn.filter(s => s.estado === 'vencido').reduce((a, s) => a + s.saldo, 0);
+  const ym = todayISO().slice(0, 7);
+  const cobradoMes = mxn.reduce((a, s) => a + (s.c.pagos || []).filter(p => (p.fecha || '').startsWith(ym)).reduce((x, p) => x + (+p.monto || 0), 0), 0);
+  const nVenc = all.filter(s => s.estado === 'vencido').length, ppdRep = all.reduce((a, s) => a + (s.c.metodo === 'PPD' ? (s.c.pagos || []).filter(p => !p.rep).length : 0), 0);
+  const k0 = n => '$' + AGIS_money(n).replace(/\.\d+$/, '');
+  $('#cbKpis').innerHTML = `
+    <div class="kpi"><small>Por cobrar</small><b>${k0(porCobrar)}</b><span>${all.filter(COB_TABS[0].f).length} cuentas abiertas (MXN)</span></div>
+    <div class="kpi ${nVenc ? 'bad' : ''}"><small>Vencido</small><b>${k0(vencido)}</b><span>${nVenc} cuenta${nVenc === 1 ? '' : 's'}</span></div>
+    <div class="kpi"><small>Cobrado este mes</small><b>${k0(cobradoMes)}</b><span>${MES[new Date().getMonth()]} ${new Date().getFullYear()}</span></div>
+    <div class="kpi ${ppdRep ? 'warn' : ''}"><small>Complementos de pago</small><b>${ppdRep}</b><span>pagos PPD sin REP (fase 3)</span></div>`;
+  $('#cbTabs').innerHTML = COB_TABS.map(t => `<button class="tab ${CB.tab === t.k ? 'on' : ''}" data-cbtab="${t.k}">${t.l} <span class="badge">${pad(all.filter(t.f).length)}</span></button>`).join('');
+  const q = normKey(CB.q), tab = COB_TABS.find(t => t.k === CB.tab) || COB_TABS[0];
+  const list = all.filter(tab.f).filter(s => {
+    if (!q) return true;
+    const cl = Store.data.clientes.find(c => c.id === s.b.clienteId) || {};
+    return normKey([s.b.folio, s.b.clienteNombre, s.b.titulo, cl.rfc].join(' ')).includes(q);
+  }).sort((a, b) => (b.vencido - a.vencido) || String(a.c.vence || '').localeCompare(String(b.c.vence || '')));
+  const money = s => `$${AGIS_money(s)}`;
+  $('#cbBody').innerHTML = list.length ? list.map(s => {
+    const cl = Store.data.clientes.find(c => c.id === s.b.clienteId) || {};
+    return `<tr data-cbid="${esc(s.b.id)}" class="cob-row">
+      <td><div class="cname"><b class="mono">${esc(s.b.folio || 'Sin folio')}</b><small>${esc(s.b.titulo || '')}</small></div></td>
+      <td><div class="cname"><b>${esc(s.b.clienteNombre || '—')}</b><small class="mono">${esc(cl.rfc || '')}</small></div></td>
+      <td><span class="chip">${esc(s.c.metodo || 'PUE')}</span>${s.c.factura === false ? ' <span class="chip">Sin factura</span>' : ''}</td>
+      <td class="r money">${money(s.total)}${s.moneda === 'USD' ? ' <small>USD</small>' : ''}</td>
+      <td class="r money">${money(s.pagado)}</td>
+      <td class="r money"><b>${money(Math.max(0, s.saldo))}</b></td>
+      <td>${s.c.vence ? fmtDate(s.c.vence) : '—'}${s.vencido ? `<small class="cob-late">${s.vencido} día${s.vencido === 1 ? '' : 's'} vencido</small>` : ''}</td>
+      <td>${cobPill(s.estado)}</td>
+      <td class="act"><span class="icon-btn">${ICON.right}</span></td></tr>`;
+  }).join('') : `<tr><td colspan="9"><div class="empty" style="padding:30px">${ICON.wallet}<b>Sin cuentas en esta vista</b>Agrega un presupuesto aprobado para empezar a registrar sus pagos.</div></td></tr>`;
+  cobBadge();
+}
+function pickBudgetForCobranza() {
+  const m = cobMap();
+  const avail = Store.data.presupuestos.filter(b => !m[b.id]);
+  if (!avail.length) return toast('No hay presupuestos guardados pendientes de agregar', true);
+  openModal({
+    title: 'Agregar presupuesto a Cobranza', size: 'narrow',
+    body: `<div class="field"><label>Presupuesto aprobado</label><select class="input" id="cbPick">${avail.map(b => `<option value="${b.id}">${esc(b.folio || 'Sin folio')} · ${esc(b.clienteNombre || '')} · $${AGIS_money(b.total)} ${esc(b.moneda || '')}</option>`).join('')}</select></div>
+      <div class="grid2"><div class="field"><label>Método de pago (CFDI)</label><select class="input" id="cbMet"><option value="PUE">PUE · una sola exhibición</option><option value="PPD">PPD · parcialidades o diferido</option></select></div>
+      <div class="field"><label>Fecha límite de pago</label><input class="input" type="date" id="cbVence" value="${todayISO()}"></div></div>
+      <label class="tq-check" style="margin-top:4px"><input type="checkbox" id="cbFact" checked><span>Esta venta <b>se factura</b> (desmarca si el cliente no pidió factura)</span></label>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-go>${ICON.plus}Agregar</button>`,
+    onMount(md, close) {
+      md.querySelector('[data-go]').onclick = () => {
+        const bid = md.querySelector('#cbPick').value, c = addToCobranza(bid, { vence: md.querySelector('#cbVence').value || todayISO() });
+        c.metodo = md.querySelector('#cbMet').value; c.factura = md.querySelector('#cbFact').checked;
+        Store.save('cobranza'); close(); drawCobranza(); cobDetail(bid);
+      };
+    }
+  });
+}
+function cobDetail(bid) {
+  const s = cobState(bid); if (!s) return;
+  const cl = Store.data.clientes.find(c => c.id === s.b.clienteId) || {};
+  const pagosHTML = () => {
+    const st = cobState(bid);
+    return (st.c.pagos || []).length ? `<div class="cob-pagos">${st.c.pagos.slice().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map(p => `
+      <div class="cob-pago"><span class="cob-pi">${ICON.cash.replace('width="20" height="20"', 'width="16" height="16"')}</span>
+        <span class="cob-pt"><b>$${AGIS_money(p.monto)} · ${esc(TIPOS_PAGO[p.tipo] || 'Pago')}</b><small>${fmtDate(p.fecha)} · ${esc(p.forma || '')}${p.ref ? ' · Ref. ' + esc(p.ref) : ''}${p.nota ? ' · ' + esc(p.nota) : ''}</small></span>
+        ${st.c.metodo === 'PPD' ? `<span class="chip ${p.rep ? 'ok' : 'warn'}">${p.rep ? 'REP emitido' : 'REP pendiente'}</span>` : ''}
+        <button type="button" class="icon-btn" data-pedit="${p.id}" title="Editar">${ICON.edit}</button><button type="button" class="icon-btn danger" data-pdel="${p.id}" title="Eliminar">${ICON.trash}</button></div>`).join('')}</div>`
+      : '<p class="meta-line">Aún no hay pagos registrados.</p>';
+  };
+  const sumHTML = () => {
+    const st = cobState(bid);
+    return `<div class="cob-sum"><div><small>Total</small><b>$${AGIS_money(st.total)}</b></div><div><small>Pagado</small><b>$${AGIS_money(st.pagado)}</b></div><div class="${st.saldo > 0.009 ? 'due' : 'ok'}"><small>Saldo</small><b>$${AGIS_money(Math.max(0, st.saldo))}</b></div><div><small>Estado</small>${cobPill(st.estado)}${st.vencido ? `<small class="cob-late">${st.vencido} días vencido</small>` : ''}</div></div>`;
+  };
+  openModal({
+    title: `Cobranza · ${s.b.folio || 'Sin folio'}`, size: 'wide',
+    body: `<p class="meta-line" style="margin-top:0">${esc(s.b.clienteNombre || '')}${cl.rfc ? ' · RFC ' + esc(cl.rfc) : ''} · ${esc(s.b.titulo || '')} · Presupuesto del ${fmtDate(s.b.fecha)}</p>
+      <div id="cdSum">${sumHTML()}</div>
+      <div class="grid3" style="margin-top:14px">
+        <div class="field"><label>Método de pago (CFDI)</label><select class="input" data-cf="metodo"><option value="PUE" ${s.c.metodo !== 'PPD' ? 'selected' : ''}>PUE · una sola exhibición</option><option value="PPD" ${s.c.metodo === 'PPD' ? 'selected' : ''}>PPD · parcialidades</option></select></div>
+        <div class="field"><label>Fecha límite de pago</label><input class="input" type="date" data-cf="vence" value="${esc(s.c.vence || '')}"></div>
+        <div class="field"><label>Facturación</label><select class="input" data-cf="factura"><option value="1" ${s.c.factura !== false ? 'selected' : ''}>Con factura</option><option value="0" ${s.c.factura === false ? 'selected' : ''}>Sin factura (cuenta aparte)</option></select></div>
+      </div>
+      <div class="sec-h" style="margin-top:18px"><h2>Pagos y anticipos</h2><button type="button" class="btn sm primary" data-padd>${ICON.plus}Registrar pago</button></div>
+      <div id="cdPagos">${pagosHTML()}</div>`,
+    foot: `<button class="btn danger left" data-cdel>${ICON.trash}Quitar de Cobranza</button><button class="btn" data-copen>${ICON.open}Abrir presupuesto</button><button class="btn primary" data-x>Listo</button>`,
+    onClose: () => drawCobranza(),
+    onMount(m, close) {
+      const redraw = () => { m.querySelector('#cdSum').innerHTML = sumHTML(); m.querySelector('#cdPagos').innerHTML = pagosHTML(); drawCobranza(); };
+      m.addEventListener('change', e => {
+        const k = e.target.dataset.cf; if (!k) return;
+        const c = cobMap()[bid];
+        c[k] = k === 'factura' ? e.target.value === '1' : e.target.value;
+        Store.save('cobranza'); redraw();
+      });
+      m.addEventListener('click', async e => {
+        if (e.target.closest('[data-padd]')) return pagoForm(bid, null, redraw);
+        const pe = e.target.closest('[data-pedit]'); if (pe) return pagoForm(bid, pe.dataset.pedit, redraw);
+        const pd = e.target.closest('[data-pdel]');
+        if (pd) { if (!await confirmDialog('Eliminar pago', '¿Eliminar este pago registrado?')) return; const c = cobMap()[bid]; c.pagos = c.pagos.filter(p => p.id !== pd.dataset.pdel); Store.save('cobranza'); redraw(); return; }
+        if (e.target.closest('[data-copen]')) { close(); return openBudget(bid); }
+        if (e.target.closest('[data-cdel]')) {
+          if (!await confirmDialog('Quitar de Cobranza', 'Se borrarán también sus pagos registrados. El presupuesto no se elimina.', 'Quitar')) return;
+          delete cobMap()[bid]; Store.save('cobranza'); close(); drawCobranza();
+        }
+      });
+    }
+  });
+}
+function pagoForm(bid, pid, onDone) {
+  const c = cobMap()[bid], s = cobState(bid);
+  const p = pid ? { ...c.pagos.find(x => x.id === pid) } : { fecha: todayISO(), monto: '', forma: 'Transferencia', tipo: (c.pagos || []).length ? 'pago' : 'anticipo', ref: '', nota: '' };
+  const saldoSin = r2(s.saldo + (pid ? +p.monto || 0 : 0));
+  openModal({
+    title: pid ? 'Editar pago' : 'Registrar pago', size: 'narrow',
+    body: `<div class="grid2">
+      <div class="field"><label>Fecha <span class="req">*</span></label><input class="input" type="date" name="fecha" value="${esc(p.fecha)}"></div>
+      <div class="field"><label>Monto <span class="req">*</span></label><div style="display:flex;gap:6px"><input class="input" type="number" min="0" step="0.01" inputmode="decimal" name="monto" value="${esc(p.monto)}" placeholder="0.00"><button type="button" class="btn sm" data-all title="Liquidar saldo">Saldo</button></div><small class="meta-line">Saldo antes de este pago: $${AGIS_money(saldoSin)}</small></div>
+      <div class="field"><label>Tipo</label><select class="input" name="tipo">${Object.entries(TIPOS_PAGO).map(([k, l]) => `<option value="${k}" ${p.tipo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${FORMAS_PAGO.map(f => `<option ${p.forma === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><label>Referencia / folio bancario</label><input class="input" name="ref" value="${esc(p.ref || '')}" maxlength="60"></div>
+      <div class="field"><label>Nota</label><input class="input" name="nota" value="${esc(p.nota || '')}" maxlength="160"></div>
+      ${c.metodo === 'PPD' ? `<label class="tq-check span2"><input type="checkbox" name="rep" ${p.rep ? 'checked' : ''}><span>Ya se emitió el <b>complemento de pago (REP)</b></span></label>` : ''}
+    </div>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-save>${ICON.save}Guardar</button>`,
+    onMount(m, close) {
+      const f = n => m.querySelector(`[name=${n}]`);
+      m.querySelector('[data-all]').onclick = () => { f('monto').value = Math.max(0, saldoSin).toFixed(2); f('tipo').value = 'liquidacion'; };
+      m.querySelector('[data-save]').onclick = () => {
+        const monto = r2(parseFloat(f('monto').value)), fecha = f('fecha').value;
+        if (!fecha) { f('fecha').classList.add('invalid'); return; }
+        if (!(monto > 0)) { f('monto').classList.add('invalid'); f('monto').focus(); return; }
+        if (monto > saldoSin + 0.009 && !confirm('El monto es mayor al saldo pendiente. ¿Registrarlo de todos modos?')) return;
+        const rec = { fecha, monto, tipo: f('tipo').value, forma: f('forma').value, ref: f('ref').value.trim(), nota: f('nota').value.trim(), rep: f('rep') ? f('rep').checked : !!p.rep, by: ME.username, at: new Date().toISOString() };
+        c.pagos = c.pagos || [];
+        if (pid) { const i = c.pagos.findIndex(x => x.id === pid); c.pagos[i] = { ...c.pagos[i], ...rec }; } else c.pagos.push({ id: uid(), ...rec });
+        Store.save('cobranza'); close(); toast('Pago guardado'); onDone && onDone();
+      };
+    }
+  });
+}
+function exportCobranza() {
+  const rows = [['Folio', 'Proyecto', 'Cliente', 'RFC', 'Método', 'Factura', 'Moneda', 'Total', 'Pagado', 'Saldo', 'Vence', 'Días vencido', 'Estado']];
+  cobAll().forEach(s => { const cl = Store.data.clientes.find(c => c.id === s.b.clienteId) || {}; rows.push([s.b.folio, s.b.titulo, s.b.clienteNombre, cl.rfc || '', s.c.metodo, s.c.factura === false ? 'No' : 'Sí', s.moneda, s.total, s.pagado, s.saldo, s.c.vence || '', s.vencido, COB_EST[s.estado].l]); });
+  rows.push([]); rows.push(['Pagos']); rows.push(['Folio', 'Fecha', 'Monto', 'Tipo', 'Forma', 'Referencia', 'Nota', 'REP']);
+  cobAll().forEach(s => (s.c.pagos || []).forEach(p => rows.push([s.b.folio, p.fecha, p.monto, TIPOS_PAGO[p.tipo] || '', p.forma, p.ref || '', p.nota || '', s.c.metodo === 'PPD' ? (p.rep ? 'Sí' : 'No') : ''])));
+  const csv = '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  download(`cobranza-tridi-${todayISO()}.csv`, new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+}
+
 /* ================= Módulos en construcción ================= */
 const SOON_INFO = {
-  cobranza: { t: 'Cobranza', d: 'Registro de pagos y anticipos por presupuesto, saldo pendiente, días vencidos y alertas. Pagos PUE y PPD con complemento de pago.', f: 'Fase 2' },
-  fiscal: { t: 'Fiscal', d: 'Ingresos y egresos (de TRIDI Finanzas), IVA trasladado y acreditable, retenciones, estimado de ISR RESICO, ventas con y sin factura, factura global y timbrado CFDI 4.0 vía PAC.', f: 'Fase 3' },
-  produccion: { t: 'Control Producción', d: 'Programación de ocupación por impresora (TRIDI Scheduler v8) integrada al login, con la pantalla del taller sujeta al permiso «Pantalla del taller».', f: 'Fase 2' }
+  fiscal: { t: 'Fiscal', d: 'Ingresos y egresos (de TRIDI Finanzas), IVA trasladado y acreditable, retenciones, estimado de ISR RESICO, ventas con y sin factura, factura global y timbrado CFDI 4.0 vía PAC.', f: 'Fase 3' }
 };
 function renderSoon(stage, k) {
   const m = SOON_INFO[k];
   stage.innerHTML = `<section class="card soon-card"><span class="soon-ico">${ICON[MODULES.find(x => x.k === k).icon]}</span><span class="soon-tag">${esc(m.f)} · en construcción</span><h2>${esc(m.t)}</h2><p>${esc(m.d)}</p></section>`;
+}
+
+/* ================= CONTROL DE PRODUCCIÓN (scheduler v8 integrado) ================= */
+function renderProduccion(stage) {
+  stage.innerHTML = `<section class="prod-wrap">
+    <div class="prod-bar">${isAdmin() ? `<button class="btn sm ghost" data-pimport>${ICON.download}Importar del scheduler anterior</button>` : ''}<a class="btn sm" href="/produccion/" target="_blank" rel="noopener">${ICON.open}Abrir en pestaña</a></div>
+    <iframe class="prod-frame" src="/produccion/" title="Control de Producción"></iframe></section>`;
+  const b = stage.querySelector('[data-pimport]'); if (b) b.onclick = prodImport;
+}
+function renderTaller(stage) {
+  stage.innerHTML = `<section class="card soon-card"><span class="soon-ico">${ICON.eye}</span><span class="soon-tag">Vista para TV / monitor</span><h2>Pantalla del taller</h2><p>Muestra en tiempo real la ocupación de cada máquina. Ábrela en el navegador de la TV del taller e inicia sesión con un usuario que tenga el permiso «Pantalla del taller».</p><p style="margin-top:18px"><a class="btn primary" href="/produccion/pantalla" target="_blank" rel="noopener">${ICON.open}Abrir pantalla</a></p></section>`;
+}
+function prodImport() {
+  openModal({
+    title: 'Importar del scheduler anterior', size: 'narrow',
+    body: `<p class="meta-line">Sube los archivos de la carpeta <b>data/</b> del scheduler v8 (volumen <code>/app/data</code>). Lo actual se respalda antes de reemplazar.</p>
+      <div class="field"><label>jobs.json (trabajos)</label><input type="file" class="input" accept=".json,application/json" id="impJobs"></div>
+      <div class="field"><label>config.json (máquinas y horario)</label><input type="file" class="input" accept=".json,application/json" id="impCfg"></div>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-go>${ICON.save}Importar</button>`,
+    onMount(m, close) {
+      const read = inp => new Promise((res, rej) => { const f = inp.files[0]; if (!f) return res(undefined); const fr = new FileReader(); fr.onload = () => { try { res(JSON.parse(fr.result)); } catch (e) { rej(new Error(f.name + ' no es un JSON válido')); } }; fr.readAsText(f); });
+      m.querySelector('[data-go]').onclick = async () => {
+        try {
+          const jobs = await read(m.querySelector('#impJobs')), config = await read(m.querySelector('#impCfg'));
+          if (jobs === undefined && config === undefined) return toast('Elige al menos un archivo', true);
+          const r = await fetch('/api/prod/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobs, config }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || 'No se pudo importar');
+          close(); toast(`Importado: ${d.jobs} trabajos`); const fr = $('.prod-frame'); if (fr) fr.src = fr.src;
+        } catch (e) { toast(e.message, true); }
+      };
+    }
+  });
 }
 
 /* ================= MONITOR (solo administradores) ================= */
@@ -2607,7 +2862,7 @@ function drawMonitor() {
       <div class="kpi"><small>Avance promedio</small><b>${D.avgProg}%</b><span>proyectos en curso</span></div>
       <div class="kpi ${D.vencidas.length ? 'bad' : ''}"><small>Actividades vencidas</small><b>${D.vencidas.length}</b><span>sin marcar como Lista</span></div>
       <div class="kpi ${D.porVencer.length ? 'warn' : ''}"><small>Presupuestos por vencer</small><b>${D.porVencer.length}</b><span>próximos 7 días</span></div>
-      <div class="kpi"><small>Por cobrar</small><b>$${AGIS_money(D.porCobrar).replace(/\.\d+$/, '')}</b><span>${D.porCobrarUSD ? '+ US$' + AGIS_money(D.porCobrarUSD).replace(/\.\d+$/, '') + ' · ' : ''}presupuestos vinculados</span></div>
+      <div class="kpi"><small>Por cobrar</small><b>$${AGIS_money(D.porCobrar).replace(/\.\d+$/, '')}</b><span>${D.porCobrarUSD ? '+ US$' + AGIS_money(D.porCobrarUSD).replace(/\.\d+$/, '') + ' · ' : ''}saldo en Cobranza</span></div>
     </div>
     <div class="mon-grid">
       <div class="mon-projects">${D.activos.length ? D.activos.map(p => {
@@ -2657,8 +2912,8 @@ const BANK = {
   banco: 'BBVA BANCOMER', titular: 'BRENDA GUTIERREZ ALDACO',
   mxnCuenta: '157 078 5171', mxnClabe: '012 180 01570785171 4',
   usdCuenta: '', usdClabe: '',
-  correo: 'contacto@tridimx.tech', tel: '(55) 7596 6111',
-  contacto: 'contacto@tridimx.tech · (55) 7596 6111'
+  correo: 'contacto@tridimx.tech', tel: '55 7335 2169',
+  contacto: 'contacto@tridimx.tech · 55 7335 2169'
 };
 const RET_ISR_RESICO = 1.25; // % de ISR que retiene una persona moral a una persona física en RESICO
 const VIGENCIA_DIAS = 15;
@@ -2760,7 +3015,7 @@ function suggestBudgetFolio() {
 function renderPresupuesto(stage) {
   if (!PB) { PB = newBudget(); snapBudget(); }
   const clientes = [...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre));
-  const bk = { ...BANK, ...(PB.banco || {}) };
+  const bk = { ...BANK };
   stage.innerHTML = `
   <section id="presupuesto" class="rep-layout tq">
     <div>
@@ -2771,14 +3026,16 @@ function renderPresupuesto(stage) {
         </div>
         <div class="tq-band">Propuesta comercial</div>
         <div class="grid2">
-          <div class="field"><label>Folio</label><div style="display:flex;gap:6px"><input class="input mono" data-b="folio" placeholder="DW-111126-PRO-001-Rev.0"><button class="icon-btn" data-act="bfolio" title="Sugerir folio" style="height:42px;width:42px;border:1px solid var(--line);flex:none">${ICON.wand}</button></div></div>
-          <div class="field"><label>Moneda</label><div class="seg" id="curSeg"><button type="button" data-cur="MXN">Pesos (MXN)</button><button type="button" data-cur="USD">Dólares (USD)</button></div></div>
-          <div class="field"><label>Cliente <span class="req">*</span></label><select class="input" data-b="clienteId"><option value="">Seleccionar cliente…</option>${clientes.map(c => `<option value="${esc(c.id)}">${esc(c.nombre)} · ${esc(c.id)}</option>`).join('')}</select></div>
+          <div class="field span2 tq-row1">
+            <div class="field"><label>Folio</label><div style="display:flex;gap:6px"><input class="input mono" data-b="folio" placeholder="DW-111126-PRO-001-Rev.0"><button class="icon-btn" data-act="bfolio" title="Sugerir folio" style="height:42px;width:42px;border:1px solid var(--line);flex:none">${ICON.wand}</button></div></div>
+            <div class="field"><label>Prefijo <small class="meta-line">(opcional)</small></label><input class="input mono" data-b="prefijo" maxlength="4" placeholder="Auto"></div>
+            <div class="field"><label>Moneda</label><div class="seg" id="curSeg"><button type="button" data-cur="MXN">Pesos (MXN)</button><button type="button" data-cur="USD">Dólares (USD)</button></div></div>
+          </div>
+          <div class="field"><label>Cliente <span class="req">*</span></label><select class="input" data-b="clienteId"><option value="">Seleccionar cliente…</option>${clientes.map(c => `<option value="${esc(c.id)}">${esc(clientLabel(c))}</option>`).join('')}</select></div>
           <div class="field"><label>Proyecto <span class="req">*</span></label><input class="input" data-b="obra" placeholder="Ej. PROMOCIONALES DEWA"></div>
           <div class="field"><label>Fecha <span class="req">*</span></label><input class="input" type="date" data-b="fecha"></div>
           <div class="field"><label>Vigencia hasta <span class="req">*</span></label><input class="input" type="date" data-b="vigenciaHasta"></div>
-          <div class="field"><label>Lugar</label><input class="input" data-b="lugar"></div>
-          <div class="field"><label>Prefijo del folio <small class="meta-line">(opcional)</small></label><input class="input mono" data-b="prefijo" maxlength="4" placeholder="Auto: iniciales del proyecto"></div>
+          <div class="field span2"><label>Lugar</label><input class="input" data-b="lugar"></div>
           <div class="field span2"><label class="tq-check"><input type="checkbox" data-bchk="personaMoral"><span>El cliente es <b>persona moral</b> · aplicar retención de ISR ${RET_ISR_RESICO}% (RESICO)</span></label></div>
         </div>
       </div>
@@ -2842,7 +3099,7 @@ function renderPresupuesto(stage) {
   });
   root.addEventListener('change', e => {
     const k = e.target.dataset.b;
-    if (k === 'clienteId') { const c = Store.data.clientes.find(x => x.id === e.target.value); PB.clienteNombre = c ? c.nombre : ''; saveBudgetDraft(); }
+    if (k === 'clienteId') { const c = Store.data.clientes.find(x => x.id === e.target.value); PB.clienteNombre = c ? c.nombre : ''; PB.clienteRfc = c ? (c.rfc || '') : ''; if (c && c.rfc && !RFC_GENERICOS.includes(c.rfc)) { PB.personaMoral = c.rfc.length === 12; const ck = $('[data-bchk=personaMoral]'); if (ck) ck.checked = PB.personaMoral; drawBudgetTotals(); } saveBudgetDraft(); }
     if (k === 'fecha' && PB.fecha) { PB.vigenciaHasta = addDaysISO(PB.fecha, VIGENCIA_DIAS); $('[data-b=vigenciaHasta]').value = PB.vigenciaHasta; saveBudgetDraft(); }
     const ck = e.target.dataset.bchk; if (ck) { PB[ck] = e.target.checked; saveBudgetDraft(); drawBudgetTotals(); }
   });
@@ -3003,7 +3260,7 @@ let budBusy = false;
 function saveBudget(notify) {
   if (budBusy || !validateBudget()) return false;
   if (!String(PB.folio || '').trim()) { PB.folio = suggestBudgetFolio(); const el = $('[data-b=folio]'); if (el) el.value = PB.folio; }
-  const c = Store.data.clientes.find(x => x.id === PB.clienteId); if (c) { PB.clienteNombre = c.nombre; PB.contacto = c.contacto || c.nombre; }
+  const c = Store.data.clientes.find(x => x.id === PB.clienteId); if (c) { PB.clienteNombre = c.nombre; PB.clienteRfc = c.rfc || ''; }
   const t = AGIS_budgetTotals(PB);
   const rec = { id: PB.savedId || uid(), folio: PB.folio, fecha: PB.fecha, vigenciaHasta: PB.vigenciaHasta, clienteId: PB.clienteId, clienteNombre: PB.clienteNombre, titulo: PB.obra, subtotal: t.subtotal, iva: t.iva, retIsr: t.retIsr, total: t.total, moneda: PB.moneda, updated: new Date().toISOString(), by: ME.username, data: null };
   const old = Store.data.presupuestos.find(x => x.id === rec.id);
@@ -3017,7 +3274,9 @@ function saveBudget(notify) {
 }
 async function makeBudgetPDF(d) {
   if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('No se pudo cargar el generador de PDF (revisa la conexión)');
-  return buildBudgetPDF({ ...d, banco: { ...BANK, ...(d.banco || {}) } }, { jsPDF: window.jspdf.jsPDF, logos: window.AGIS_LOGOS });
+  await loadPdfFonts();
+  const c = Store.data.clientes.find(x => x.id === d.clienteId);
+  return buildBudgetPDF({ ...d, clienteRfc: (c && c.rfc) || d.clienteRfc || '', banco: { ...BANK } }, { jsPDF: window.jspdf.jsPDF, logos: window.AGIS_LOGOS, fonts: window.AGIS_PDF_FONTS });
 }
 const budgetFile = f => `TRIDI MX ${(f || 'Presupuesto')}`.replace(/[^\w\-. ]+/g, '_') + '.pdf';
 async function generateBudgetPDF() {
@@ -3055,6 +3314,7 @@ function budgetMenu(btn) {
   popMenu(btn, [
     { label: 'Abrir / editar', icon: 'open', run: () => openBudget(id) },
     { label: 'Descargar PDF', icon: 'download', run: async () => { try { (await makeBudgetPDF(b.data)).save(budgetFile(b.folio)); } catch (e) { toast(e.message || 'Error al generar el PDF', true); } } },
+    ...(can('cobranza') ? [{ label: cobMap()[id] ? 'Ver en Cobranza' : 'Aprobado · enviar a Cobranza', icon: 'wallet', run: () => guardBudget(() => { if (!cobMap()[id]) { addToCobranza(id); toast('Agregado a Cobranza'); } go('cobranza'); setTimeout(() => cobDetail(id), 80); }) }] : []),
     ...(can('proyectos') ? [{ label: b.proyectoId && Store.data.proyectos.some(x => x.id === b.proyectoId) ? 'Ver proyecto' : 'Convertir en proyecto', icon: 'folder', run: () => guardBudget(() => projectFromBudget(b)) }] : []),
     { label: 'Nueva revisión', icon: 'copy', run: () => guardBudget(() => { const rev = (+b.data.rev || 0) + 1; PB = { ...newBudget(), ...b.data, savedId: null, rev, fecha: todayISO(), vigenciaHasta: addDaysISO(todayISO(), VIGENCIA_DIAS), folio: String(b.data.folio || '').replace(/[-_]Rev\.\d+$/, '') + '-Rev.' + rev }; budgetSnap = ''; saveBudgetDraft(); renderPresupuesto($('#stage')); toast('Revisión ' + rev + ' lista para editar'); }) },
     { label: 'Duplicar como nuevo', icon: 'copy', run: () => guardBudget(() => { PB = { ...newBudget(), ...b.data, savedId: null, rev: 0, folio: '', fecha: todayISO(), vigenciaHasta: addDaysISO(todayISO(), VIGENCIA_DIAS), clienteId: '', clienteNombre: '', obra: '' }; budgetSnap = ''; saveBudgetDraft(); renderPresupuesto($('#stage')); }) },
@@ -3321,6 +3581,8 @@ async function logout(msg) {
 }
 async function startApp(me) {
   ME = me;
+  const next = new URLSearchParams(location.search).get('next');
+  if (next && /^\/produccion(\/|\/pantalla)?$/.test(next)) { location.replace(next); return; }
   try { await Store.init(); }
   catch (e) { if (e.status === 401) return; toast('No se pudo cargar la información: ' + e.message, true); return; }
   migrateData();

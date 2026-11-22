@@ -1,21 +1,27 @@
-# TRIDI MX · Gestor (v5.0 · Fase 1)
+# TRIDI MX · Gestor (v6.0 · Fase 2)
 
 Base: dashboard Arquitechtura AGIS v4.3, con marca y módulos de TRIDI MX.
 
-## Cambios de la fase 1
-- **Marca TRIDI MX**: logos (wordmark + mascota), iconos de la app, paleta navy #1B2D4F · teal #2EC4A5 · naranja #F26522.
-- **Secciones**: Clientes, Proyectos, Actividades, Presupuesto, Cobranza*, Fiscal*, Control Producción*, Monitor y Usuarios. *En construcción (fases 2 y 3).
-- **Reporte Visita** retirado del menú, permisos y búsqueda (los datos antiguos no se borran).
-- **Presupuesto = Propuesta comercial TRIDI** con el diseño de `DW-111126-PRO-001-Rev.0`:
-  folio `PP-ddmmaa-PRO-###-Rev.N`, vigencia (15 días), foto por concepto (columna NOTAS),
-  retención ISR 1.25 % RESICO cuando el cliente es persona moral, IVA, importe con letra y datos bancarios.
-- **Permisos nuevos**: cobranza, fiscal, produccion y `taller` (pantalla del taller, se asigna por usuario; por defecto solo administradores).
-- Catálogos adaptados: líneas de servicio, unidades (PZA, LOTE, SERVICIO…), orígenes (WhatsApp, Mercado Libre, Shopify…).
+## Novedades v6.0 (fase 2)
+- **SQLite** (`/data/tridi.db`, módulo `node:sqlite` de Node 22, sin dependencias). Al primer arranque importa
+  `db.json`, `users.json` y `notifications.json` de la v5.0 y los renombra a `*.importado`.
+  Respaldo diario en `/data/backups/tridi-AAAA-MM-DD.db` (30 días).
+- **Sesiones persistentes**: un redeploy ya no cierra la sesión.
+- **Cobranza**: presupuestos aprobados → pagos/anticipos, PUE/PPD, con/sin factura, fecha límite, saldo, días vencidos,
+  alerta en el menú y en Inicio, exportar CSV. El saldo de Clientes/Proyectos ahora sale de Cobranza.
+- **Control Producción**: scheduler v8 integrado (tema claro) en `/produccion`, con login y permiso `produccion`.
+  Pantalla del taller en `/produccion/pantalla` con permiso `taller`. Importador de `jobs.json`/`config.json` (admin).
+  Las listas de cliente/proyecto del scheduler incluyen los del Gestor.
+- **Clientes con RFC**, razón social, régimen fiscal y C.P. (listos para CFDI 4.0). RFC de 12 caracteres marca persona moral
+  y activa la retención 1.25 % en el presupuesto.
+- **PDF de presupuesto** con el diseño limpio del presupuesto AGIS y la marca TRIDI. Teléfono: 55 7335 2169.
+- Instalación sin datos de demostración; si quedaron los de AGIS, se limpian solos.
 
-Sugerencia de subdominio: `gestor.tridimx.tech`. Volumen persistente en `/data` (igual que AGIS).
+## Easypanel
+- Imagen `node:22-alpine` con `TZ=America/Mexico_City` (el horario del taller depende de la hora local).
+- Volumen en `/data` (mismo de la v5.0: no cambiar). Variables `AUTH_USER`, `AUTH_PASS`.
 
 ---
-
 ## Notas heredadas de AGIS v4.3
 
 Módulos: **Home** (banda de botones flotantes), **Clientes**, **Actividades** (tablero tipo Trello) y **Reporte Visita** (formulario → PDF con firmas).

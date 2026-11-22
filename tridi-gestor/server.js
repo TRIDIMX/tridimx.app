@@ -1,4 +1,4 @@
-/* TRIDI MX · Gestor — servidor (Node >= 18, sin dependencias)
+/* TRIDI MX · Gestor — servidor (Node >= 22, sin dependencias; SQLite integrado)
    - Login con sesión (cookie HttpOnly) · bloqueo de 5 intentos fallidos por IP durante 15 min
    - Usuarios con perfil y módulos permitidos (admin principal definido en AUTH_USER / AUTH_PASS)
    - API JSON con permisos por módulo · subida de imágenes · respaldos diarios          */
@@ -15,6 +15,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const NOTIF_FILE = path.join(DATA_DIR, 'notifications.json');
 const UPLOADS = path.join(DATA_DIR, 'uploads');
 const PUBLIC = path.join(__dirname, 'public');
+const PROD_UI = path.join(__dirname, 'prod-ui');
 const ADMIN_USER = (process.env.AUTH_USER || '').trim().toLowerCase();
 const ADMIN_PASS = process.env.AUTH_PASS || '';
 const ADMIN_NAME = process.env.AUTH_NAME || 'Administrador';
@@ -29,28 +30,49 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 fs.mkdirSync(path.join(DATA_DIR, 'backups'), { recursive: true });
 fs.mkdirSync(UPLOADS, { recursive: true });
 const readJSONFile = (f, def) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return def; } };
-let db = readJSONFile(DB_FILE, {});
-let users = readJSONFile(USERS_FILE, []);
-let notifs = readJSONFile(NOTIF_FILE, {});
+const store = require('./store')(DATA_DIR);
+const BACKUPS = path.join(DATA_DIR, 'backups');
+
+/* ---------- Importación única desde la versión 5.0 (archivos JSON) ---------- */
+if (store.isEmpty() && (fs.existsSync(DB_FILE) || fs.existsSync(USERS_FILE))) {
+  const old = readJSONFile(DB_FILE, {}), oldUsers = readJSONFile(USERS_FILE, []), oldNotifs = readJSONFile(NOTIF_FILE, {});
+  store.tx(() => {
+    Object.keys(old).forEach(k => store.put('db:' + k, old[k]));
+    store.put('users', oldUsers); store.put('notifs', oldNotifs);
+    store.put('meta:importedFromJson', new Date().toISOString());
+  });
+  [DB_FILE, USERS_FILE, NOTIF_FILE].forEach(f => { if (fs.existsSync(f)) fs.renameSync(f, f + '.importado'); });
+  console.log(`Datos de la v5.0 importados a SQLite (${Object.keys(old).length} colecciones, ${oldUsers.length} usuarios). Los JSON quedan como *.importado`);
+}
+let db = store.prefix('db:');
+let users = store.get('users', []);
+let notifs = store.get('notifs', {});
+
+/* Instalación nueva o con datos de demostración heredados de AGIS: estructura Clientes + Proyectos, sin demo */
+(function cleanStart() {
+  const changed = [];
+  const onlyDemo = (db.clientes || []).length > 0 && db.clientes.every(c => c.demo) && (db.proyectos || []).every(p => p.demo);
+  if (!(db.clientes || []).length || onlyDemo) {
+    if ((db.schema || 1) < 2) { db.schema = 2; changed.push('schema'); }
+    if (onlyDemo) { db.clientes = []; changed.push('clientes'); if ((db.proyectos || []).length) { db.proyectos = []; changed.push('proyectos'); } }
+    if (!db.seeded) { db.seeded = true; changed.push('seeded'); }
+  }
+  if (db.board && Array.isArray(db.board.columns) && db.board.columns.some(c => (c.cards || []).some(k => k.demo))) {
+    db.board.columns.forEach(c => { c.cards = (c.cards || []).filter(k => !k.demo); }); changed.push('board');
+  }
+  if (changed.length) { store.tx(() => changed.forEach(k => store.put('db:' + k, db[k]))); console.log('Limpieza inicial:', changed.join(', ')); }
+})();
 
 /* ---------- Persistencia ---------- */
-let qDb = Promise.resolve(), qUsers = Promise.resolve();
-async function atomicWrite(file, data) { const tmp = file + '.tmp'; await fs.promises.writeFile(tmp, data); await fs.promises.rename(tmp, file); }
-function persistDb() {
-  qDb = qDb.then(async () => {
-    await atomicWrite(DB_FILE, JSON.stringify(db));
-    const day = new Date().toISOString().slice(0, 10), dir = path.join(DATA_DIR, 'backups'), bk = path.join(dir, `db-${day}.json`);
-    if (!fs.existsSync(bk)) {
-      await fs.promises.copyFile(DB_FILE, bk);
-      const files = (await fs.promises.readdir(dir)).filter(f => f.startsWith('db-')).sort();
-      for (const f of files.slice(0, Math.max(0, files.length - 30))) await fs.promises.unlink(path.join(dir, f));
-    }
-  }).catch(err => console.error('Error al guardar db:', err));
-  return qDb;
+function backupDaily() { try { const f = store.backup(BACKUPS); if (f) console.log('Respaldo diario:', path.basename(f)); } catch (e) { console.error('Respaldo:', e.message); } }
+function persistDb(keys) {
+  const ks = keys ? [].concat(keys) : Object.keys(db);
+  store.tx(() => ks.forEach(k => store.put('db:' + k, db[k])));
+  backupDaily();
 }
-let qNotif = Promise.resolve();
-function persistNotifs() { qNotif = qNotif.then(() => atomicWrite(NOTIF_FILE, JSON.stringify(notifs))).catch(e => console.error('Error al guardar notificaciones:', e)); return qNotif; }
-function persistUsers() { qUsers = qUsers.then(() => atomicWrite(USERS_FILE, JSON.stringify(users, null, 1))).catch(e => console.error('Error al guardar usuarios:', e)); return qUsers; }
+function persistNotifs() { store.put('notifs', notifs); }
+function persistUsers() { store.put('users', users); }
+const prod = require('./prod')(store, () => db);
 
 /* ---------- Usuarios / contraseñas ---------- */
 const sha = s => crypto.createHash('sha256').update(String(s)).digest();
@@ -71,7 +93,9 @@ const can = (u, m) => u.role === 'admin' || modulesOf(u).includes(m);
 const publicUser = u => ({ username: u.username, name: u.name, role: u.role, modules: modulesOf(u), active: u.active !== false, builtin: !!u.builtin, created: u.created, updated: u.updated, lastLogin: u.lastLogin });
 
 /* ---------- Sesiones ---------- */
-const sessions = new Map(); // sid -> { username, exp }
+const sessions = new Map(); // sid -> { username, exp, saved } · espejo en SQLite
+store.sessions.purge();
+store.sessions.live().forEach(r => sessions.set(r.sid, { username: r.username, exp: r.exp, saved: r.exp }));
 function parseCookies(req) { const o = {}; (req.headers.cookie || '').split(';').forEach(p => { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); }); return o; }
 const isHttps = req => req.socket.encrypted || (TRUST_PROXY && String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https');
 function setSession(req, res, sid, maxAge) {
@@ -80,13 +104,16 @@ function setSession(req, res, sid, maxAge) {
 function currentUser(req) {
   const sid = parseCookies(req).agis_sid; if (!sid) return null;
   const s = sessions.get(sid); if (!s) return null;
-  if (s.exp < Date.now()) { sessions.delete(sid); return null; }
+  if (s.exp < Date.now()) { dropSession(sid); return null; }
   const u = findUser(s.username);
-  if (!u || u.active === false) { sessions.delete(sid); return null; }
+  if (!u || u.active === false) { dropSession(sid); return null; }
   s.exp = Date.now() + SESSION_MS; // sesión deslizante
+  if (s.exp - (s.saved || 0) > 3600e3) { s.saved = s.exp; store.sessions.save(sid, s.username, s.exp); }
   return u;
 }
-const killSessions = username => { for (const [k, s] of sessions) if (s.username === username) sessions.delete(k); };
+function addSession(sid, username, exp) { sessions.set(sid, { username, exp, saved: exp }); store.sessions.save(sid, username, exp); }
+function dropSession(sid) { sessions.delete(sid); store.sessions.remove(sid); }
+const killSessions = username => { for (const [k, s] of sessions) if (s.username === username) sessions.delete(k); store.sessions.removeUser(username); };
 
 /* ---------- Bloqueo por intentos fallidos ---------- */
 const fails = new Map(); // ip -> { count, first, lockedUntil }
@@ -94,13 +121,13 @@ function clientIp(req) {
   if (TRUST_PROXY && req.headers['x-forwarded-for']) { const parts = String(req.headers['x-forwarded-for']).split(',').map(s => s.trim()).filter(Boolean); if (parts.length) return parts[parts.length - 1]; }
   return req.socket.remoteAddress || 'desconocida';
 }
-setInterval(() => { const now = Date.now(); for (const [ip, r] of fails) if ((r.lockedUntil || 0) < now && now - r.first > LOCK_MS) fails.delete(ip); for (const [k, s] of sessions) if (s.exp < now) sessions.delete(k); }, 60e3).unref();
+setInterval(() => { const now = Date.now(); for (const [ip, r] of fails) if ((r.lockedUntil || 0) < now && now - r.first > LOCK_MS) fails.delete(ip); for (const [k, s] of sessions) if (s.exp < now) sessions.delete(k); store.sessions.purge(); }, 60e3).unref();
 
 /* ---------- HTTP helpers ---------- */
-function headers(req, extra = {}) {
+function headers(req, extra = {}, frameable = false) {
   const h = {
-    'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': frameable ? 'SAMEORIGIN' : 'DENY', 'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': `default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-src 'self'; frame-ancestors ${frameable ? "'self'" : "'none'"}; base-uri 'self'; form-action 'self'`,
     ...extra
   };
   if (isHttps(req)) h['Strict-Transport-Security'] = 'max-age=31536000';
@@ -131,7 +158,9 @@ function dbFor(u) {
   else if (can(u, 'proyectos')) { out.board = db.board || null; out.config = db.config || null; } // solo lectura para calcular avances
   if (can(u, 'presupuesto')) out.presupuestos = db.presupuestos || [];
   else if (can(u, 'proyectos')) out.presupuestos = (db.presupuestos || []).map(({ data, ...r }) => r);
+  else if (can(u, 'cobranza')) out.presupuestos = (db.presupuestos || []).map(({ data, ...r }) => ({ ...r, data: data ? { obra: data.obra, rev: data.rev, personaMoral: data.personaMoral } : null }));
   if (can(u, 'proyectos') || u.role === 'admin') out.proyectos = db.proyectos || [];
+  if (can(u, 'cobranza')) out.cobranza = db.cobranza || {};
   if (can(u, 'reporte')) out.reportes = db.reportes || [];
   else if (can(u, 'actividades') || can(u, 'proyectos')) out.reportes = (db.reportes || []).map(({ data, ...r }) => can(u, 'proyectos')
     ? { ...r, data: { componentes: ((data && data.componentes) || []).map(c => ({ sistema: c.sistema, estado: c.estado, observacion: c.observacion })) } } : r);
@@ -139,7 +168,7 @@ function dbFor(u) {
   out.colPrefs = (db.colPrefs || {})[u.username] || null;
   return out;
 }
-const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', catalogos: 'admin', seeded: null, colPrefs: null };
+const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', catalogos: 'admin', seeded: null, colPrefs: null };
 
 /* ---------- Validación de usuarios ---------- */
 function cleanUserInput(b, isNew) {
@@ -187,7 +216,7 @@ const server = http.createServer(async (req, res) => {
         if (u && u.active !== false && checkPass(u, (b && b.password) || '')) {
           fails.delete(ip);
           const sid = crypto.randomBytes(32).toString('hex');
-          sessions.set(sid, { username: u.username, exp: now + SESSION_MS });
+          addSession(sid, u.username, now + SESSION_MS);
           setSession(req, res, sid, SESSION_MS);
           if (!u.builtin) { u.lastLogin = new Date().toISOString(); persistUsers(); }
           return send(req, res, 200, publicUser(u));
@@ -202,7 +231,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (p === '/api/logout' && method === 'POST') {
-        const sid = parseCookies(req).agis_sid; if (sid) sessions.delete(sid);
+        const sid = parseCookies(req).agis_sid; if (sid) dropSession(sid);
         setSession(req, res, '', 0);
         return send(req, res, 200, { ok: true });
       }
@@ -211,6 +240,7 @@ const server = http.createServer(async (req, res) => {
       if (!me) return send(req, res, 401, { error: 'Sesión no iniciada' });
 
       if (p === '/api/me' && method === 'GET') return send(req, res, 200, publicUser(me));
+      if (await prod.handle(req, res, p, method, me, { send, readBody, can })) return;
       if (p === '/api/db' && method === 'GET') return send(req, res, 200, dbFor(me));
 
       const m = /^\/api\/db\/([a-zA-Z]+)$/.exec(p);
@@ -224,7 +254,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         if (key === 'colPrefs') { db.colPrefs = db.colPrefs || {}; db.colPrefs[me.username] = body; }
         else db[key] = body;
-        await persistDb();
+        persistDb(key);
         return send(req, res, 200, { ok: true });
       }
 
@@ -233,13 +263,12 @@ const server = http.createServer(async (req, res) => {
         if (me.role !== 'admin') return send(req, res, 403, { error: 'Solo administradores' });
         const b = await readBody(req);
         if (!b || !Array.isArray(b.clientes) || !Array.isArray(b.proyectos) || !(+b.schema >= 2)) return send(req, res, 400, { error: 'Datos de migración incompletos' });
-        await qDb;
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         const bk = path.join(DATA_DIR, 'backups', `pre-migracion-${stamp}.json`);
         await fs.promises.writeFile(bk, JSON.stringify(db));
         ['clientes', 'proyectos', 'board', 'reportes', 'presupuestos'].forEach(k => { if (b[k] !== undefined) db[k] = b[k]; });
         db.schema = +b.schema; db.migratedAt = new Date().toISOString(); db.migratedBy = me.username;
-        await persistDb();
+        persistDb(['clientes', 'proyectos', 'board', 'reportes', 'presupuestos', 'schema', 'migratedAt', 'migratedBy']);
         console.log(`Migración a estructura ${db.schema} por ${me.username} · respaldo: ${bk}`);
         return send(req, res, 200, { ok: true, backup: path.basename(bk) });
       }
@@ -336,6 +365,21 @@ const server = http.createServer(async (req, res) => {
       return send(req, res, 404, { error: 'No encontrado' });
     }
 
+    /* ---------- Control de Producción: páginas protegidas por sesión y permiso ---------- */
+    const PROD_PAGES = { '/produccion': ['index.html', 'produccion'], '/produccion/': ['index.html', 'produccion'], '/produccion/app.js': ['app.js', 'produccion'],
+      '/produccion/pantalla': ['display.html', 'taller'], '/produccion/pantalla.js': ['display.js', 'taller'] };
+    if (PROD_PAGES[p]) {
+      const [fname, perm] = PROD_PAGES[p];
+      const me = currentUser(req);
+      if (!me) { res.writeHead(302, headers(req, { Location: '/?next=' + encodeURIComponent(p) })); return res.end(); }
+      if (!can(me, perm)) return send(req, res, 403, `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:40px;color:#1b2d4f"><h2>Sin acceso</h2><p>Tu usuario no tiene el permiso «${perm === 'taller' ? 'Pantalla del taller' : 'Control Producción'}». Pídelo a un administrador.</p>`, 'text/html; charset=utf-8');
+      return fs.readFile(path.join(PROD_UI, fname), (e, buf) => {
+        if (e) return send(req, res, 404, 'No encontrado', 'text/plain');
+        res.writeHead(200, headers(req, { 'Content-Type': MIME[path.extname(fname)], 'Cache-Control': 'no-cache' }, true));
+        res.end(buf);
+      });
+    }
+
     /* ---------- Archivos estáticos (sin datos sensibles) ---------- */
     if (method !== 'GET' && method !== 'HEAD') return send(req, res, 405, 'Método no permitido', 'text/plain');
     let file = path.normalize(path.join(PUBLIC, p === '/' ? 'index.html' : p));
@@ -360,7 +404,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`TRIDI MX Gestor en http://0.0.0.0:${PORT}  ·  datos: ${DATA_DIR}`);
+  console.log(`TRIDI MX Gestor en http://0.0.0.0:${PORT}  ·  base de datos: ${store.file}`);
+  backupDaily();
   if (!ADMIN_USER || !ADMIN_PASS) console.warn('⚠ Define AUTH_USER y AUTH_PASS en las variables de entorno para poder iniciar sesión.');
   else console.log(`Administrador principal: ${ADMIN_USER}  ·  usuarios adicionales: ${users.length}`);
 });

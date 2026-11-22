@@ -7,7 +7,7 @@
 
   var C = {
     ink: [31, 35, 41], body: [58, 64, 73], muted: [128, 135, 146], faint: [176, 182, 191],
-    hair: [227, 230, 235], soft: [246, 247, 249], red: [228, 25, 55], white: [255, 255, 255],
+    hair: [227, 230, 235], soft: [246, 247, 249], red: [242, 101, 34], white: [255, 255, 255], navy: [27, 45, 79], teal: [26, 143, 121], neg: [200, 40, 40],
     pill: {
       OK: { bg: [230, 244, 236], fg: [21, 115, 71] },
       FALLA: { bg: [253, 231, 234], fg: [192, 21, 48] },
@@ -77,7 +77,7 @@
     K.hair = function (x1, yy, x2, c, lw) { K.draw(c || C.hair); doc.setLineWidth(lw || 0.25); doc.line(x1, yy, x2, yy); };
     K.caps = function (t) { return String(t || '').toUpperCase(); };
     K.header = function () {
-      if (logos.wordmark) { var lw = 44; try { doc.addImage(logos.wordmark, 'PNG', K.L, 13.2, lw, lw / (logos.wordmarkRatio || 5.94), 'wordmark', 'FAST'); } catch (e) {} }
+      if (logos.wordmark) { var lw = 44; try { lw = 40; doc.addImage(logos.wordmark, 'PNG', K.L, 11.5, lw, lw / (logos.wordmarkRatio || 5.94), 'wordmark', 'FAST'); } catch (e) {} }
       else { K.F('r', 18); doc.text('arquitechtura', K.L, 20); }
       K.F('s', 7, C.red); doc.text(K.caps(meta.kind), K.R, 15.6, { align: 'right', charSpace: 0.55 });
       var fs = 12.5; K.F('b', fs);
@@ -88,9 +88,9 @@
     K.footer = function (p, n) {
       var fy = K.H - 15.5, x = K.L;
       K.hair(K.L, fy - 4.5, K.R);
-      if (logos.mark) { try { doc.addImage(logos.mark, 'PNG', K.L, fy - 2.6, 6.2, 6.2, 'mark', 'FAST'); x = K.L + 8.4; } catch (e) {} }
-      K.F('s', 7); doc.text('ARQUITECHTURA AGIS S.A. DE C.V.', x, fy, { charSpace: 0.3 });
-      K.F('r', 6.6, C.muted); doc.text('Lago Estefanía 31, Granada, Miguel Hidalgo, 11520, CDMX  ·  55 5255 1687  ·  55 5545 5054', x, fy + 3.4);
+      if (logos.mark) { try { doc.addImage(logos.mark, 'PNG', K.L, fy - 3, 7, 7, 'mark', 'FAST'); x = K.L + 9; } catch (e) {} }
+      K.F('s', 7); doc.text(meta.empresa || 'TRIDI MX', x, fy, { charSpace: 0.3 });
+      K.F('r', 6.6, C.muted); doc.text(meta.pie || 'Impresión 3D · Grabado Láser · Artículos Promocionales', x, fy + 3.4);
       K.F('r', 6.8, C.muted); doc.text('Página ' + p + ' de ' + n, K.R, fy, { align: 'right' });
       if (meta.folio) { K.F('r', 6.6, C.faint); doc.text(meta.folio, K.R, fy + 3.4, { align: 'right' }); }
     };
@@ -280,136 +280,111 @@
     return { subtotal: subtotal, iva: iva, retIsr: retIsr, total: Math.round((subtotal + iva - retIsr) * 100) / 100 };
   }
 
-  /* ================= Propuesta comercial TRIDI MX ================= */
+  /* ================= Propuesta comercial TRIDI MX (diseño limpio) ================= */
   function buildBudgetPDF(b, libs) {
-    var doc = new libs.jsPDF({ unit: 'mm', format: 'letter' });
-    var logos = libs.logos || root.AGIS_LOGOS || {};
-    var W = 215.9, H = 279.4, L = 8, R = W - 8, CW = R - L;
-    var NAVY = [27, 45, 79], TEAL = [26, 143, 121], TEAL_L = [46, 196, 165], ORANGE = [242, 101, 34], INK = [25, 28, 33], MUTED = [110, 116, 126];
-    var GRID = [200, 205, 212], ROW = [244, 245, 247], PEACH = [255, 236, 224], NEG = [214, 48, 49], WHITE = [255, 255, 255];
+    var bank = b.banco || {};
+    var K = setup(libs, { kind: 'Propuesta comercial', folio: b.folio, empresa: 'TRIDI MX', pie: 'Impresión 3D · Grabado Láser · Artículos Promocionales  ·  ' + (bank.correo || '') + '  ·  ' + (bank.tel || '') });
+    var doc = K.doc, F = K.F, L = K.L, R = K.R, CW = K.CW;
     var cur = b.moneda === 'USD' ? 'USD' : 'MXN';
-    var t = budgetTotals(b), bank = b.banco || {};
-    var F = function (style, size, c) { doc.setFont('helvetica', style); doc.setFontSize(size); c = c || INK; doc.setTextColor(c[0], c[1], c[2]); };
-    var fill = function (c) { doc.setFillColor(c[0], c[1], c[2]); };
-    var draw = function (c) { doc.setDrawColor(c[0], c[1], c[2]); };
-    var BOTTOM = H - 18, y;
-
-    function header() {
-      var x = L + 10;
-      if (logos.mark) { try { doc.addImage(logos.mark, 'PNG', x, 7.5, 15, 15, 'tmark', 'FAST'); x += 16; } catch (e) {} }
-      if (logos.wordmark) { try { var lw = 34; doc.addImage(logos.wordmark, 'PNG', x, 15 - lw / (logos.wordmarkRatio || 4.08) / 2, lw, lw / (logos.wordmarkRatio || 4.08), 'twm', 'FAST'); } catch (e) {} }
-      else { F('bold', 16, NAVY); doc.text('TRIDI MX', x, 17); }
-      fill(NAVY); doc.rect(98, 6, R - 98, 17, 'F');
-      F('bolditalic', 10.5, ORANGE); doc.text('Impresión 3D · Grabado Láser · Artículos Promocionales', (98 + R) / 2, 16, { align: 'center' });
-    }
-    function newPage() { doc.addPage(); header(); y = 30; }
-    function ensure(h) { if (y + h > BOTTOM) newPage(); }
-    function bar(text, color, h) {
-      h = h || 6.2; ensure(h + 4); fill(color); doc.rect(L, y, CW, h, 'F');
-      F('bold', 8.6, WHITE); doc.text(text, L + 2, y + h / 2 + 1.1); y += h;
-    }
-
-    /* Encabezado + banda */
-    header();
-    fill(TEAL); doc.rect(L, 25, CW, 6.6, 'F');
-    F('bold', 11, WHITE); doc.text('PROPUESTA COMERCIAL', W / 2, 29.6, { align: 'center' });
-
-    /* Datos generales */
-    y = 38.5;
-    var lx = L + 26, vx = lx + 2, ux = 138;
-    [['Folio:', b.folio || ''], ['Cliente:', b.clienteNombre || ''], ['Proyecto:', b.obra || ''], ['Fecha:', fmt(b.fecha)], ['Vigencia hasta:', fmt(b.vigenciaHasta)], ['Lugar:', b.lugar || '']].forEach(function (r) {
-      F('bold', 9, INK); doc.text(r[0], lx, y, { align: 'right' });
-      F('normal', 9, INK); doc.text(doc.splitTextToSize(String(r[1]), ux - vx - 1)[0] || '', vx, y);
-      draw([215, 219, 225]); doc.setLineWidth(0.25); doc.line(vx - 1, y + 2, ux, y + 2);
-      y += 6.3;
-    });
-    F('bold', 8.4, MUTED); doc.text('Moneda:', 158, 38.5, { align: 'right' });
-    F('normal', 8.4, INK); doc.text(cur === 'USD' ? 'Dólares (USD)' : 'Pesos Mexicanos (MXN)', 165, 38.5);
-    y += 3;
+    var t = budgetTotals(b), parts = b.partidas || [];
+    var hasFoto = parts.some(function (p) { return p.foto && p.foto.src; });
+    K.header();
+    K.titleBlock('PROPUESTA COMERCIAL', b.obra, b.clienteNombre + (b.clienteRfc ? '  ·  RFC ' + b.clienteRfc : ''));
+    K.metaBand([
+      [{ l: 'FECHA', v: fmtLong(b.fecha) }, { l: 'VIGENCIA HASTA', v: fmtLong(b.vigenciaHasta) }, { l: 'LUGAR', v: b.lugar }],
+      [{ l: 'PROYECTO', v: b.obra }, { l: 'MONEDA', v: cur === 'USD' ? 'Dólares (USD)' : 'Pesos mexicanos (MXN)' }, { l: 'CLIENTE', v: b.clienteNombre }]
+    ]);
 
     /* Conceptos */
-    var parts = b.partidas || [];
+    K.section('Conceptos', 30);
+    var fR = K.FAM.r, fS = K.FAM.s;
     var body = parts.map(function (p, i) {
-      var desc = String(p.concepto || '').toUpperCase() + (p.nota ? '\n' + p.nota : '');
-      return [String(i + 1).padStart(3, '0'), desc, p.unidad || '', money(p.cantidad).replace(/\.00$/, ''), '$' + money(p.precio), '$' + money(Math.round((+p.cantidad || 0) * (+p.precio || 0) * 100) / 100), ''];
+      var row = [String(i + 1).padStart(3, '0'), (p.concepto || '') + (p.nota ? '\n' + p.nota : ''), p.unidad || '', money(p.cantidad).replace(/\.00$/, ''), money(p.precio), money(Math.round((+p.cantidad || 0) * (+p.precio || 0) * 100) / 100)];
+      if (hasFoto) row.push('');
+      return row;
     });
-    if (!body.length) body.push([{ content: 'Sin conceptos', colSpan: 7, styles: { halign: 'center' } }]);
-    var auto = function (o) { return libs.autoTable ? libs.autoTable(doc, o) : doc.autoTable(o); };
-    auto({
-      startY: y, theme: 'grid', margin: { left: L, right: W - R, top: 30, bottom: H - BOTTOM },
-      head: [['#', 'CONCEPTO / DESCRIPCIÓN', 'UNIDAD', 'CANT.', 'P. UNITARIO', 'IMPORTE', 'NOTAS']], body: body,
-      styles: { font: 'helvetica', fontSize: 7.6, textColor: INK, lineColor: GRID, lineWidth: 0.2, cellPadding: 1.8, valign: 'middle', halign: 'center' },
-      headStyles: { fillColor: TEAL, textColor: WHITE, fontStyle: 'bold', fontSize: 7.8, minCellHeight: 8.5, valign: 'middle', halign: 'center', lineColor: WHITE, lineWidth: 0.3 },
-      bodyStyles: { minCellHeight: 22, fillColor: ROW },
-      columnStyles: { 0: { cellWidth: 17, fontStyle: 'bold' }, 1: { cellWidth: 'auto', halign: 'left' }, 2: { cellWidth: 17 }, 3: { cellWidth: 17 }, 4: { cellWidth: 25, halign: 'right' }, 5: { cellWidth: 25, halign: 'right' }, 6: { cellWidth: 25 } },
-      didParseCell: function (h) { if (h.section === 'body' && h.column.index === 6) { var p = parts[h.row.index]; if (p && p.foto && p.foto.src) h.cell.styles.minCellHeight = 22; } },
-      didDrawCell: function (h) {
-        if (h.section !== 'body' || h.column.index !== 6) return;
-        var p = parts[h.row.index]; if (!p || !p.foto || !p.foto.src) return;
-        var c = h.cell, mw = c.width - 2, mh = c.height - 2, r = (p.foto.w || 4) / (p.foto.h || 3), iw = mw, ih = iw / r;
-        if (ih > mh) { ih = mh; iw = ih * r; }
-        try { doc.addImage(p.foto.src, 'JPEG', c.x + (c.width - iw) / 2, c.y + (c.height - ih) / 2, iw, ih, undefined, 'FAST'); } catch (e) {}
+    if (!body.length) body.push([{ content: 'Sin conceptos', colSpan: hasFoto ? 7 : 6 }]);
+    var head = ['#', 'CONCEPTO', 'UNIDAD', 'CANT.', 'P. UNITARIO', 'IMPORTE']; if (hasFoto) head.push('REFERENCIA');
+    var cs = { 0: { cellWidth: 12, font: fS[0], fontStyle: fS[1], textColor: C.ink }, 2: { cellWidth: 17 }, 3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 23, halign: 'right' }, 5: { cellWidth: 25, halign: 'right', font: fS[0], fontStyle: fS[1], textColor: C.ink } };
+    if (hasFoto) cs[6] = { cellWidth: 28 };
+    K.table({
+      startY: K.y, theme: 'plain', margin: { left: L, right: K.W - R, top: K.TOP_NEXT + 2, bottom: K.H - K.BOTTOM },
+      head: [head], body: body,
+      styles: { font: fR[0], fontStyle: fR[1], fontSize: 8.4, textColor: C.body, cellPadding: { top: 3, bottom: 3, left: 2, right: 2 }, valign: 'top', lineWidth: 0 },
+      headStyles: { font: fS[0], fontStyle: fS[1], fontSize: 6.4, textColor: C.muted, cellPadding: { top: 1, bottom: 2.6, left: 2, right: 2 } },
+      columnStyles: cs,
+      didParseCell: function (h) {
+        if (h.section === 'head' && h.column.index >= 3 && h.column.index <= 5) h.cell.styles.halign = 'right';
+        if (h.section === 'body' && hasFoto && h.column.index === 6) { var p = parts[h.row.index]; if (p && p.foto && p.foto.src) h.cell.styles.minCellHeight = 21; }
       },
-      didDrawPage: function (h) { if (h.pageNumber > 1) header(); }
+      didDrawCell: function (h) {
+        var c = h.cell;
+        if (h.section === 'head') { K.hair(c.x, c.y + c.height, c.x + c.width, C.ink, 0.35); return; }
+        K.hair(c.x, c.y + c.height, c.x + c.width, C.hair, 0.25);
+        if (hasFoto && h.column.index === 6) {
+          var p = parts[h.row.index]; if (!p || !p.foto || !p.foto.src) return;
+          var mw = c.width - 3, mh = 18, r = (p.foto.w || 4) / (p.foto.h || 3), iw = mw, ih = iw / r;
+          if (ih > mh) { ih = mh; iw = ih * r; }
+          try { doc.addImage(p.foto.src, 'JPEG', c.x + c.width - iw - 1.5, c.y + 1.8, iw, ih, undefined, 'FAST'); } catch (e) {}
+        }
+      },
+      didDrawPage: function (h) { if (h.pageNumber > 1) K.header(); }
     });
-    y = doc.lastAutoTable.finalY + 7;
+    K.y = doc.lastAutoTable.finalY + 6;
 
     /* Totales */
-    var rows = [['SUBTOTAL:', '$' + money(t.subtotal), INK]];
-    if (b.personaMoral) rows.push(['RETENCIÓN ISR (1.25%) PARA RESICO:', '-$' + money(t.retIsr), NEG]);
-    rows.push(['IVA (' + (+b.iva || 0) + '%):', '$' + money(t.iva), INK]);
-    ensure(rows.length * 6 + 18);
-    var bx = 147, bw = R - bx;
-    rows.forEach(function (r) {
-      F('bold', 8.6, INK); doc.text(r[0], bx - 2, y + 4, { align: 'right' });
-      draw(GRID); doc.setLineWidth(0.2); doc.rect(bx, y, bw, 6);
-      F('normal', 8.6, r[2]); doc.text(r[1], R - 1.5, y + 4, { align: 'right' });
-      y += 6;
+    var rowsT = [['Subtotal', money(t.subtotal), C.body]];
+    if (b.personaMoral) rowsT.push(['Retención ISR 1.25% (RESICO)', '-' + money(t.retIsr), C.neg]);
+    rowsT.push(['IVA ' + (+b.iva || 0) + '%', money(t.iva), C.body]);
+    K.ensure(rowsT.length * 5.6 + 30);
+    var tx = R - 86;
+    rowsT.forEach(function (r) {
+      F('r', 8.8, C.body); doc.text(r[0], tx, K.y);
+      F('s', 8.8, r[2] === C.neg ? C.neg : C.ink); doc.text(r[1], R, K.y, { align: 'right' });
+      K.y += 5.6;
     });
-    fill(NAVY); doc.rect(L, y, CW, 7.5, 'F');
-    fill(ORANGE); doc.rect(bx, y, bw, 7.5, 'F');
-    F('bold', 10, WHITE); doc.text('TOTAL DEL PRESUPUESTO:', bx - 2, y + 5.1, { align: 'right' });
-    F('bold', 11.5, WHITE); doc.text('$' + money(t.total), R - 1.5, y + 5.2, { align: 'right' });
-    y += 7.5;
-    fill(NAVY); doc.rect(L, y, CW, 6.4, 'F');
-    F('bold', 8.6, WHITE); doc.text(doc.splitTextToSize(importeLetras(t.total, cur).replace(/^\(\* /, '* ').replace(/ \*\)$/, ' *'), CW - 4)[0], R - 2, y + 4.3, { align: 'right' });
-    y += 13;
+    K.y += 1;
+    K.fill(C.navy); doc.roundedRect(tx - 4, K.y - 4.6, R - tx + 4, 10, 2, 2, 'F');
+    F('s', 7, C.white); doc.text('TOTAL DEL PRESUPUESTO', tx, K.y + 1.6, { charSpace: 0.5 });
+    F('b', 11.5, C.white); doc.text('$' + money(t.total) + ' ' + cur, R - 3, K.y + 1.9, { align: 'right' });
+    K.y += 11;
+    F('s', 7.8, C.muted); doc.text(doc.splitTextToSize(importeLetras(t.total, cur), CW), R, K.y, { align: 'right' });
+    K.y += 12;
 
     /* Notas y condiciones */
     var notas = (b.observaciones || []).filter(function (s) { return s && s.trim(); });
-    bar('NOTAS Y CONDICIONES', TEAL);
-    notas.forEach(function (n, i) {
-      var ls = doc.splitTextToSize('• ' + n.trim(), CW - 4), h = ls.length * 3.6 + 2.6;
-      ensure(h); fill(i % 2 ? WHITE : ROW); doc.rect(L, y, CW, h, 'F');
-      F('normal', 7.6, INK); doc.text(ls, L + 2, y + 3.7); y += h;
+    notas = notas.concat(['Para personas morales favor de considerar la retención del 1.25% de ISR para RESICO.']);
+    F('r', 8.6);
+    K.section('Notas y condiciones', Math.min(50, notas.reduce(function (a, o) { return a + doc.splitTextToSize(o, CW - 7).length * 4.4 + 1.6; }, 0)));
+    notas.forEach(function (o, i) {
+      var last = i === notas.length - 1;
+      F(last ? 's' : 'r', 8.6, last ? C.ink : C.body);
+      var ls = doc.splitTextToSize(o.trim(), CW - 7);
+      K.ensure(5);
+      K.fill(C.red); doc.circle(L + 1.6, K.y - 1.15, 0.65, 'F');
+      ls.forEach(function (ln) { K.ensure(4.4); F(last ? 's' : 'r', 8.6, last ? C.ink : C.body); doc.text(ln, L + 6, K.y); K.y += 4.4; });
+      K.y += 1.6;
     });
-    ensure(7); draw(GRID); doc.setLineWidth(0.2); doc.line(L, y, R, y);
-    F('bold', 8, INK); doc.text('PARA PERSONAS MORALES FAVOR DE CONSIDERAR LA RETENCIÓN DEL 1.25% DE ISR PARA RESICO', L + 2, y + 4.4);
-    y += 6.4; doc.line(L, y, R, y);
-    y += 10;
+    K.y += 6;
 
     /* Datos bancarios */
-    var bl = [
-      'Banco: ' + (bank.banco || '') + '  |  Titular: ' + (bank.titular || ''),
-      'Moneda Nacional Cuenta: ' + (bank.mxnCuenta || '') + ' / Clabe Interbancaria: ' + (bank.mxnClabe || ''),
-      'Correo: ' + (bank.correo || '') + '  |  Tel: ' + (bank.tel || '')
-    ];
-    ensure(6.2 + bl.length * 5.6);
-    bar('DATOS BANCARIOS', NAVY);
-    bl.forEach(function (ln) {
-      fill(PEACH); doc.rect(L, y, CW, 5.6, 'F'); draw(WHITE); doc.setLineWidth(0.3); doc.line(L, y + 5.6, R, y + 5.6);
-      F('normal', 7.6, INK); doc.text(ln, L + 2, y + 3.8); y += 5.6;
+    K.section('Datos bancarios', 34);
+    var bh = 30, by = K.y;
+    K.fill(C.soft); doc.roundedRect(L, by, CW, bh, 2.5, 2.5, 'F');
+    var c3 = (CW - 12) / 3;
+    [
+      { l: 'BANCO Y TITULAR', v: [bank.banco || '', bank.titular || ''] },
+      { l: 'MONEDA NACIONAL (MXN)', v: ['Cuenta: ' + (bank.mxnCuenta || ''), 'CLABE: ' + (bank.mxnClabe || '')] },
+      { l: 'CONTACTO', v: [bank.correo || '', 'Tel. ' + (bank.tel || '')] }
+    ].forEach(function (c, i) {
+      var x = L + 6 + i * c3;
+      F('s', 6.4, C.muted); doc.text(c.l, x, by + 7, { charSpace: 0.5 });
+      F('r', 8.6, C.ink); c.v.forEach(function (ln, k) { doc.text(doc.splitTextToSize(ln, c3 - 4)[0] || '', x, by + 12 + k * 4.4); });
     });
-
-    /* Pie */
-    var n = doc.getNumberOfPages();
-    for (var p = 1; p <= n; p++) {
-      doc.setPage(p);
-      F('normal', 8.4, INK); doc.text('TRIDI MX', W / 2, H - 9, { align: 'center' });
-      doc.text('Página ' + p + (n > 1 ? ' de ' + n : ''), R, H - 9, { align: 'right' });
-      if (b.folio) { F('normal', 6.8, MUTED); doc.text(b.folio, L, H - 9); }
-    }
-    return doc;
+    K.hair(L + 6, by + 22.2, R - 6, [232, 234, 238]);
+    F('r', 7.8, C.body); doc.text('Precios en ' + (cur === 'USD' ? 'Dólares (USD)' : 'Pesos MXN') + ' · Favor de enviar comprobante de pago a ' + (bank.correo || ''), L + 6, by + 26.6);
+    K.y = by + bh + 8;
+    return K.finish();
   }
 
   root.buildReportPDF = buildReportPDF;

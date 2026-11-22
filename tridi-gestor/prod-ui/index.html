@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="/icons/favicon.png">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TRIDI MX · Control de producción</title>
+<style>
+  :root{
+    --navy:#FFFFFF; --navy-deep:#F5F6F8; --navy-soft:#EEF1F6;
+    --teal:#1A8F79; --orange:#F26522; --orange-deep:#C94E12;
+    --line:#E2E6EC; --paper:#1B2D4F; --err:#D93036;
+    font-family:"Manrope",-apple-system,"Segoe UI",Inter,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--navy-deep); color:var(--paper);}
+  .tridi-app{ padding:20px; min-width:320px; max-width:1900px; margin:0 auto;}
+  /* Distribución: contenido a la izquierda, cola de finalizados a la derecha */
+  .layout{ display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:14px; align-items:start;}
+  .col-side{ position:sticky; top:14px; max-height:calc(100vh - 28px); display:flex; flex-direction:column;}
+  .col-side .panel{ margin-bottom:0; display:flex; flex-direction:column; min-height:0; max-height:calc(100vh - 28px);}
+  .fin-list{ overflow-y:auto; min-height:60px; flex:1;}
+  .fin-row{ padding:8px 4px; border-bottom:1px solid var(--line); font-size:12px;}
+  .fin-row:last-child{ border-bottom:none;}
+  .fin-row.prob{ background:rgba(232,184,75,.08); border-left:3px solid #B7791F; padding-left:8px;}
+  .fin-main{ display:flex; align-items:center; gap:8px; min-width:0;}
+  .fin-row .job-name{ flex:1;}
+  .fin-meta{ color:#6B7280; font-size:11px; margin-top:3px; line-height:1.5;}
+  .fin-note{ margin-top:5px; padding:5px 7px; border-radius:6px; background:rgba(232,184,75,.14); color:#8A5A00; font-size:11.5px; white-space:pre-wrap; word-break:break-word;}
+  .fin-actions{ display:flex; gap:6px; margin-top:7px; flex-wrap:wrap;}
+  .fin-actions button{ font-family:inherit; font-size:11.5px; font-weight:700; border-radius:6px; padding:5px 10px; cursor:pointer; border:1px solid var(--line); background:transparent; color:var(--paper);}
+  .fin-actions button.ok{ background:rgba(46,196,165,.18); border-color:rgba(46,196,165,.6); color:var(--teal);}
+  .fin-actions button.prob{ border-color:rgba(232,184,75,.6); color:#B7791F;}
+  .fin-actions button:hover{ filter:brightness(1.25);}
+  .fin-row textarea{ width:100%; margin-top:6px; min-height:54px; resize:vertical; background:var(--navy-deep); border:1px solid var(--line); color:var(--paper); border-radius:6px; padding:6px 8px; font-family:inherit; font-size:12px;}
+  .tag.warn{ background:rgba(232,184,75,.2); color:#B7791F;}
+  .fin-msg{ font-size:11.5px; color:#6B7280; min-height:16px; margin-top:6px;}
+  .fin-msg button{ background:none; border:none; color:var(--teal); font-weight:700; cursor:pointer; font-family:inherit; font-size:11.5px; padding:0 0 0 6px; text-decoration:underline;}
+  @media (max-width:1100px){ .layout{ grid-template-columns:minmax(0,1fr);} .col-side{ position:static; max-height:none; order:-1;} .col-side .panel{ max-height:420px;} }
+
+  .tridi-head{ margin-bottom:16px; display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+  .tridi-head a.pantalla{ font-size:11.5px; font-weight:700; color:var(--teal); text-decoration:none; border:1px solid var(--line); border-radius:99px; padding:5px 12px;}
+  .tridi-head a.pantalla:hover{ border-color:var(--teal);}
+  .head-right{ display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .sup-toggle{ display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-size:11.5px; font-weight:700; color:var(--paper); user-select:none;}
+  .sup-toggle input{ position:absolute; opacity:0; width:0; height:0;}
+  .sup-toggle .sw-track{ width:38px; height:20px; border-radius:99px; background:#DDE2EA; border:1px solid var(--line); position:relative; transition:background .15s;}
+  .sup-toggle .sw-track::after{ content:''; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:#9AA1AD; transition:left .15s, background .15s;}
+  .sup-toggle input:checked + .sw-track{ background:rgba(242,101,34,.35); border-color:var(--orange);}
+  .sup-toggle input:checked + .sw-track::after{ left:20px; background:var(--orange);}
+  .sup-toggle input:focus-visible + .sw-track{ outline:2px solid var(--teal);}
+  .sup-toggle.on{ color:var(--orange);}
+  .sup-banner{ display:none; margin:0 0 12px; padding:8px 12px; border-radius:8px; border:1px solid rgba(242,101,34,.6); background:rgba(242,101,34,.12); color:#C2410C; font-size:12px; font-weight:600;}
+  .sup-banner.show{ display:block;}
+  .mchecks{ display:flex; flex-wrap:wrap; gap:6px 14px; padding:6px 0;}
+  .mchecks label{ display:inline-flex; align-items:center; gap:6px; margin:0; font-size:12.5px; text-transform:none; letter-spacing:0; color:var(--paper); font-weight:600; cursor:pointer;}
+  .mchecks label.dis{ opacity:.45; cursor:not-allowed;}
+  .mchecks input{ width:auto; accent-color:var(--teal);}
+  .mchecks .empty{ font-size:12px; color:#6B7280;}
+  .btn-ahora{ margin-top:6px; font-family:inherit; font-size:11.5px; font-weight:700; border-radius:6px; padding:5px 10px; cursor:pointer; border:1px solid var(--teal); background:transparent; color:var(--teal);}
+  .btn-ahora:hover{ background:rgba(46,196,165,.15);}
+  .tridi-head h1{ font-size:18px; margin:0; letter-spacing:.04em; text-transform:uppercase; font-weight:800;}
+  .tridi-head h1 span{ color:var(--orange);}
+  .tridi-head .sub{ font-size:11px; color:#6B7280; letter-spacing:.08em; text-transform:uppercase; margin-top:2px;}
+
+  .panel{ background:var(--navy); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px;}
+  .panel h2, details.panel > summary{
+    font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--teal);
+    margin:0 0 12px 0; font-weight:700;
+  }
+  details.panel > summary{ cursor:pointer; margin:0; list-style:none; display:flex; justify-content:space-between; align-items:center;}
+  details.panel > summary::-webkit-details-marker{ display:none;}
+  details.panel > summary::after{ content:"▾"; color:#8A93A3; font-size:12px;}
+  details.panel[open] > summary{ margin-bottom:12px;}
+  details.panel[open] > summary::after{ content:"▴";}
+  .panel.collapsible > h2, .panel.collapsible .tl-head h2{ cursor:pointer; user-select:none; display:flex; align-items:center; gap:8px;}
+  .panel.collapsible > h2::after, .panel.collapsible .tl-head h2::after{ content:"▾"; color:#8A93A3; font-size:12px; margin-left:4px;}
+  .panel.collapsible.collapsed > h2::after, .panel.collapsible.collapsed .tl-head h2::after{ content:"▸";}
+  .panel.collapsible.collapsed > :not(h2):not(.tl-head){ display:none !important;}
+  .panel.collapsible.collapsed > h2, .panel.collapsible.collapsed .tl-head{ margin-bottom:0;}
+  .panel.collapsible.collapsed .tl-nav{ display:none;}
+  .hint{ font-size:11.5px; color:#6B7280; margin:0 0 10px 0; line-height:1.45;}
+
+  .form-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px 12px;}
+  @media (max-width:760px){ .form-grid{ grid-template-columns:repeat(2,1fr);} }
+  .field label{ display:block; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:#9AA1AD; margin-bottom:4px; font-weight:600;}
+  .field input, .field select{
+    width:100%; background:var(--navy-deep); border:1px solid var(--line); color:var(--paper);
+    border-radius:6px; padding:7px 8px; font-size:13px; font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  .field input:focus, .field select:focus{ outline:2px solid var(--teal); border-color:var(--teal);}
+  .field.hidden{ display:none;}
+
+  .form-actions{ display:flex; gap:8px; margin-top:14px; justify-content:flex-end; flex-wrap:wrap;}
+  button{ font-family:inherit; cursor:pointer; border:none; border-radius:7px; padding:9px 18px; font-size:12.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;}
+  button:focus-visible{ outline:2px solid var(--teal); outline-offset:2px;}
+  .btn-primary{ background:var(--orange); color:white;} .btn-primary:hover{ background:var(--orange-deep);}
+  .btn-secondary{ background:transparent; color:#5B6474; border:1px solid var(--line);} .btn-secondary:hover{ border-color:#6B7280; color:white;}
+  .btn-ghost{ background:transparent; color:#8A93A3; text-transform:none; font-weight:600; padding:4px 8px; font-size:11.5px;}
+  .btn-ghost.warn:hover{ color:#B7791F;}
+  .btn-ghost:hover{ color:var(--teal);} .btn-ghost.danger:hover{ color:var(--err);}
+
+  .msg{ margin-top:10px; font-size:12.5px; border-radius:6px; padding:8px 10px; display:none;}
+  .msg.show{ display:block;}
+  .msg.ok{ background:rgba(46,196,165,.12); color:var(--teal); border:1px solid rgba(46,196,165,.4);}
+  .msg.err{ background:rgba(229,72,77,.12); color:#BE1E1E; border:1px solid rgba(229,72,77,.4);}
+
+  /* Línea de tiempo */
+  .tl-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px;}
+  .tl-nav{ display:flex; align-items:center; gap:10px;}
+  .tl-nav button{ background:var(--navy-soft); color:var(--paper); padding:5px 11px; font-size:14px;}
+  .tl-nav button:hover{ background:var(--line);}
+  .tl-date{ font-size:14px; font-weight:700; letter-spacing:.03em; min-width:190px; text-align:center;}
+  .btn-today{ background:transparent !important; border:1px solid var(--line); color:#5B6474 !important; padding:5px 10px !important; font-size:10.5px !important;}
+  .tl-scroll{ overflow-x:auto; border-radius:6px; border:1px solid var(--line);}
+  table.tl{ border-collapse:collapse; width:100%; min-width:1400px;}
+  table.tl th, table.tl td{ border:1px solid var(--line);}
+  table.tl thead th{ background:var(--navy-soft); font-size:10px; color:#5B6474; padding:5px 1px; text-align:center; font-weight:600; white-space:nowrap;}
+  table.tl thead th.day-col{ font-size:11px; font-weight:800; letter-spacing:.03em; color:var(--paper); padding:6px 2px;}
+  table.tl thead th.day-col-today{ color:var(--orange);}
+  table.tl thead th.day-col-off{ color:#8A93A3; font-weight:600;}
+  table.tl thead th.hour-col{ font-size:9px; padding:4px 1px;}
+  table.tl thead th.now-col{ background:var(--orange); color:white;}
+  table.tl thead th.printer-col{ text-align:left; padding-left:8px; min-width:110px; vertical-align:bottom;}
+  table.tl tbody th{ background:var(--navy-deep); text-align:left; padding:5px 8px; font-size:11px; white-space:nowrap; font-weight:700; min-width:110px;}
+  table.tl tbody th .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px;}
+  table.tl tbody th .status{ display:block; font-size:9px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#8A93A3; margin-top:1px;}
+  table.tl tbody th .status.mant{ color:#BE1E1E;}
+  table.tl tbody tr.mant th{ box-shadow:inset 3px 0 0 var(--err);}
+  table.tl tbody th .status.busy{ color:var(--orange);}
+  table.tl td.cell{ width:20px; height:28px; position:relative;}
+  table.tl td.cell.off{ background:repeating-linear-gradient(45deg,#F3F5F8,#F3F5F8 4px,#E9ECF1 4px,#E9ECF1 8px);}
+  table.tl td.cell .lbl{ position:absolute; inset:0; display:flex; align-items:center; padding-left:4px; font-size:9px; color:white; text-shadow:0 1px 2px rgba(0,0,0,.65); overflow:hidden; white-space:nowrap; font-weight:700;}
+  table.tl td.cell.filled{ cursor:grab;}
+  body.dragging, body.dragging *{ cursor:grabbing !important; user-select:none;}
+  table.tl td.cell.drag-src{ opacity:.3;}
+  table.tl td.cell.drop-prev{ outline:2px solid #66E3D3; outline-offset:-2px; background-image:linear-gradient(rgba(102,227,211,.35),rgba(102,227,211,.35));}
+  table.tl tr.drop-ok th{ box-shadow:inset 0 0 0 2px var(--teal);}
+  table.tl tr.drop-bad th{ box-shadow:inset 0 0 0 2px var(--err); background:rgba(229,72,77,.18);}
+  .drag-ghost{ position:fixed; z-index:80; pointer-events:none; padding:6px 10px; border-radius:8px; font-size:12px; font-weight:700; color:#fff; box-shadow:0 6px 18px rgba(16,24,40,.25); max-width:320px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border:1px solid rgba(255,255,255,.35);}
+  .drag-ghost.bad{ background:var(--err) !important;}
+  .drag-ghost small{ display:block; font-weight:600; opacity:.9; font-size:10.5px;}
+  .legend{ font-size:10.5px; color:#8A93A3; margin-top:8px; display:flex; gap:14px; align-items:center; flex-wrap:wrap;}
+  .legend .sw{ display:inline-block; width:14px; height:10px; border-radius:2px; vertical-align:middle; margin-right:5px; background:repeating-linear-gradient(45deg,#F3F5F8,#F3F5F8 3px,#E9ECF1 3px,#E9ECF1 6px); border:1px solid var(--line);}
+
+  /* Lista de trabajos */
+  .jobs-list{ max-height:420px; overflow-y:auto;}
+  .job-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 4px; border-bottom:1px solid var(--line); font-size:12px; flex-wrap:wrap;}
+  .job-row:last-child{ border-bottom:none;}
+  .job-main{ display:flex; align-items:center; gap:8px; overflow:hidden; min-width:0;}
+  .swatch{ width:10px; height:10px; border-radius:3px; flex:none;}
+  .job-name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .job-meta{ color:#6B7280; font-size:11px; display:flex; align-items:center; gap:4px; flex-wrap:wrap;}
+  .tag{ display:inline-block; padding:1px 6px; border-radius:20px; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; background:var(--navy-soft); color:#5B6474;}
+  .tag.laser{ background:rgba(142,111,247,.2); color:#B7A3FF;}
+  .tag.t3d{ background:rgba(46,196,165,.15); color:var(--teal);}
+  .tag.uvdtf{ background:rgba(255,122,184,.18); color:#FF8FC2;}
+  .tag.cli{ background:rgba(232,184,75,.15); color:#A16207; text-transform:none; letter-spacing:0; font-size:10px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .tag.mant{ background:rgba(229,72,77,.18); color:#BE1E1E;}
+  .tag.sla{ background:rgba(232,184,75,.18); color:#B7791F;}
+  .tag.proj{ background:rgba(91,110,225,.2); color:#A9B6FF; text-transform:none; letter-spacing:0; font-size:10px; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .list-tools{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:10.5px; color:#9AA1AD; text-transform:uppercase; letter-spacing:.06em; font-weight:600;}
+  .list-tools select{ background:var(--navy-deep); border:1px solid var(--line); color:var(--paper); border-radius:6px; padding:5px 8px; font-size:12px; font-family:inherit;}
+  .group-head{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:9px 4px 4px 4px; margin-top:6px; border-bottom:2px solid var(--line); font-size:12px; font-weight:800; color:var(--teal); text-transform:uppercase; letter-spacing:.05em;}
+  .group-head:first-child{ margin-top:0;}
+  .group-head .gh-meta{ font-size:10.5px; font-weight:600; color:#6B7280; text-transform:none; letter-spacing:0; text-align:right;}
+  .chk-inline{ display:flex; align-items:flex-start; gap:8px; font-size:12.5px; color:var(--paper); margin-top:10px; cursor:pointer; line-height:1.35;}
+  .chk-inline input{ width:16px; height:16px; accent-color:var(--teal); margin-top:1px; flex:none;}
+  .chk-inline.hidden{ display:none;}
+  .empty-note{ color:#8A93A3; font-size:12px; padding:8px 2px;}
+  .foot-actions{ display:flex; justify-content:flex-end; margin-top:6px;}
+
+  /* Configuración: máquinas */
+  table.mq{ width:100%; border-collapse:collapse; font-size:12.5px;}
+  table.mq th, table.mq td{ padding:7px 8px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap;}
+  table.mq th{ color:#9AA1AD; font-size:10.5px; text-transform:uppercase; letter-spacing:.05em;}
+  .mq-scroll{ overflow-x:auto; margin-bottom:14px;}
+  .mq-form{ border-top:1px solid var(--line); padding-top:12px;}
+  .mq-form h3{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#9AA1AD; margin:0 0 10px 0;}
+
+  /* Configuración: horario */
+  .horario-grid{ display:grid; gap:6px; max-width:520px;}
+  .hrow{ display:grid; grid-template-columns:130px 1fr auto 1fr; gap:8px; align-items:center;}
+  .hrow label.chk{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer;}
+  .hrow input[type=checkbox]{ width:16px; height:16px; accent-color:var(--teal);}
+  .hrow input[type=time]{ background:var(--navy-deep); border:1px solid var(--line); color:var(--paper); border-radius:6px; padding:6px 8px; font-size:13px; font-family:ui-monospace,"SF Mono",Menlo,monospace; width:100%;}
+  .hrow input[type=time]:disabled{ opacity:.35;}
+  .hrow .sep{ color:#8A93A3; font-size:12px;}
+
+  /* Modal de edición */
+  .modal-back{ position:fixed; inset:0; background:rgba(5,10,20,.72); display:none; align-items:center; justify-content:center; z-index:50; padding:16px;}
+  .modal-back.show{ display:flex;}
+  .modal{ background:var(--navy); border:1px solid var(--line); border-radius:12px; padding:18px; max-width:600px; width:100%; max-height:92vh; overflow:auto;}
+  .modal h2{ margin-bottom:14px;}
+  html.embedded .tridi-head h1{font-size:18px}
+  html.embedded body{background:transparent}
+</style>
+</head>
+<body>
+<div class="tridi-app">
+  <div class="tridi-head">
+    <div>
+    <h1>TRIDI<span>MX</span> · Control de producción</h1>
+    <div class="sub">Programación de ocupación por máquina</div>
+    </div>
+    <div class="head-right">
+      <label class="sup-toggle" id="sup-label" title="Pone en espera todo lo que no esté en ejecución">
+        <input type="checkbox" id="sup-toggle" role="switch">
+        <span class="sw-track"></span>
+        <span>Taller sin Supervisión</span>
+      </label>
+      <a class="pantalla" href="/produccion/pantalla" id="lnk-pantalla" target="_blank" rel="noopener">Abrir pantalla de visualización ↗</a>
+    </div>
+  </div>
+  <div class="sup-banner" id="sup-banner">⏸ Taller sin Supervisión activo: los trabajos que no estaban en ejecución están en espera y se van recorriendo hasta que desactives el modo.</div>
+
+  <div class="layout">
+  <div class="col-main">
+  <div class="panel collapsible" data-collapse="solicitud">
+    <h2>Nueva solicitud</h2>
+    <div class="form-grid">
+      <div class="field">
+        <label for="f-tipo">Tipo de trabajo</label>
+        <select id="f-tipo">
+          <option value="3d">Impresión 3D FDM</option>
+          <option value="sla">Impresión 3D SLA</option>
+          <option value="laser">Grabado láser</option>
+          <option value="uvdtf">Impresión UV DTF</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-archivo">Archivo</label>
+        <input id="f-archivo" type="text" placeholder="nombre_pieza.gcode">
+      </div>
+      <div class="field">
+        <label for="f-proyecto">Nombre del proyecto</label>
+        <select id="f-proyecto"></select>
+      </div>
+      <div class="field hidden" id="f-proyecto-nuevo-wrap">
+        <label for="f-proyecto-nuevo">Proyecto nuevo</label>
+        <input id="f-proyecto-nuevo" type="text" maxlength="80" placeholder="Ej. Casco Shot">
+      </div>
+      <div class="field">
+        <label for="f-cliente">Cliente</label>
+        <select id="f-cliente"></select>
+      </div>
+      <div class="field hidden" id="f-cliente-nuevo-wrap">
+        <label for="f-cliente-nuevo">Cliente nuevo</label>
+        <input id="f-cliente-nuevo" type="text" maxlength="80" placeholder="Nombre del cliente" autocomplete="off">
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="f-presupuesto">URL del presupuesto</label>
+        <input id="f-presupuesto" type="url" maxlength="500" placeholder="https://…" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-duracion">Duración (hrs)</label>
+        <input id="f-duracion" type="number" min="0.1" step="0.1" placeholder="4">
+      </div>
+      <div class="field">
+        <label for="f-repetir">Repetir</label>
+        <input id="f-repetir" type="number" min="1" step="1" value="1">
+      </div>
+      <div class="field" id="f-multicolor-wrap">
+        <label for="f-multicolor">Multicolor</label>
+        <select id="f-multicolor">
+          <option value="no">No</option>
+          <option value="si">Sí</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-asignar">Asignar a</label>
+        <select id="f-asignar">
+          <option value="auto">Automático</option>
+          <option value="manual">Manual</option>
+        </select>
+      </div>
+      <div class="field hidden" id="f-impresora-wrap" style="grid-column:span 2;">
+        <label>Máquinas (marca una o varias para repartir las repeticiones)</label>
+        <div class="mchecks" id="f-impresora"></div>
+      </div>
+      <div class="field">
+        <label for="f-fecha">A partir de (fecha)</label>
+        <input id="f-fecha" type="date">
+      </div>
+      <div class="field">
+        <label for="f-hora">A partir de (hora)</label>
+        <input id="f-hora" type="time">
+        <button type="button" class="btn-ahora" id="btn-ahora">Ahora</button>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn-secondary" id="btn-limpiar">Limpiar</button>
+      <button class="btn-primary" id="btn-aceptar">Aceptar</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="panel collapsible" data-collapse="timeline">
+    <div class="tl-head">
+      <h2 style="margin:0;">Línea de tiempo</h2>
+      <div class="tl-nav">
+        <button id="tl-prev" aria-label="Día anterior">&lt;</button>
+        <div class="tl-date" id="tl-date-label">--/--/----</div>
+        <button id="tl-next" aria-label="Día siguiente">&gt;</button>
+        <button class="btn-today" id="tl-today">Hoy</button>
+      </div>
+    </div>
+    <div class="tl-scroll">
+      <table class="tl" id="tl-table"></table>
+    </div>
+    <div class="legend"><span><span class="sw"></span>Fuera de horario de taller</span><span>Arrastra un trabajo para moverlo de hora o de máquina · clic para editarlo</span></div>
+    <div class="msg" id="tl-msg"></div>
+  </div>
+
+  <div class="panel collapsible" data-collapse="trabajos">
+    <h2>Trabajos programados</h2>
+    <div class="list-tools">
+      <label for="jobs-sort">Ordenar por</label>
+      <select id="jobs-sort">
+        <option value="inicio">Fecha de inicio</option>
+        <option value="proyecto">Proyecto</option>
+      </select>
+    </div>
+    <div class="jobs-list" id="jobs-list"></div>
+    <div class="msg" id="jobs-msg"></div>
+    <div class="foot-actions">
+      <button class="btn-ghost danger" id="btn-vaciar">Vaciar todos los trabajos</button>
+    </div>
+  </div>
+
+  <details class="panel" id="panel-maquinas">
+    <summary>Máquinas</summary>
+    <div class="mq-scroll">
+      <table class="mq">
+        <thead><tr><th>Nombre</th><th>Tipo</th><th>Marca</th><th>Modelo</th><th>Multicolor</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="mq-tbody"></tbody>
+      </table>
+    </div>
+    <div class="mq-form">
+      <h3 id="mq-form-title">Agregar máquina</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="mq-tipo">Tipo de máquina</label>
+          <select id="mq-tipo">
+            <option value="3d">3D FDM</option>
+            <option value="sla">3D SLA</option>
+            <option value="laser">Láser</option>
+            <option value="uvdtf">UV DTF</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="mq-alias">Alias</label>
+          <input id="mq-alias" type="text" placeholder="Centauri 6">
+        </div>
+        <div class="field">
+          <label for="mq-marca">Marca</label>
+          <input id="mq-marca" type="text" placeholder="Elegoo">
+        </div>
+        <div class="field">
+          <label for="mq-modelo">Modelo</label>
+          <input id="mq-modelo" type="text" placeholder="Centauri Carbon">
+        </div>
+        <div class="field" id="mq-multicolor-wrap">
+          <label for="mq-multicolor">¿Es multicolor?</label>
+          <select id="mq-multicolor">
+            <option value="no">No</option>
+            <option value="si">Sí</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-secondary" id="mq-cancelar">Cancelar</button>
+        <button class="btn-primary" id="mq-guardar">Guardar máquina</button>
+      </div>
+      <div class="msg" id="mq-msg"></div>
+    </div>
+  </details>
+
+  <details class="panel" id="panel-horario">
+    <summary>Horario del taller</summary>
+    <p class="hint">Los trabajos se asignan solo dentro de estos horarios. Si un trabajo no termina el mismo día, se pausa al cierre y continúa en el siguiente día laborable. Los trabajos ya programados no se mueven al cambiar el horario.</p>
+    <div class="horario-grid" id="horario-grid"></div>
+    <div class="form-actions" style="justify-content:flex-start;">
+      <button class="btn-primary" id="h-guardar">Guardar horario</button>
+    </div>
+    <div class="msg" id="h-msg"></div>
+  </details>
+  </div>
+  <aside class="col-side">
+    <div class="panel" id="panel-finalizados">
+      <h2>Finalizados <span class="tag" id="fin-cnt">0</span></h2>
+      <p class="hint">Marca cada trabajo terminado: <b>Listo</b> lo quita de esta lista y de la pantalla de visualización; <b>Problema</b> lo deja pendiente con tu comentario hasta que lo marques como listo.</p>
+      <div class="fin-list" id="fin-list"></div>
+      <div class="fin-msg" id="fin-msg"></div>
+    </div>
+  </aside>
+  </div>
+</div>
+
+<div class="modal-back" id="modal-move">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="move-title" style="max-width:480px;">
+    <h2 id="move-title">Ese horario ya está ocupado</h2>
+    <p class="hint" id="move-txt" style="font-size:13px;"></p>
+    <div class="form-actions" style="justify-content:flex-start;">
+      <button class="btn-primary" id="move-shift">Recorrer los demás</button>
+      <button class="btn-secondary" id="move-next">Siguiente espacio libre</button>
+      <button class="btn-secondary" id="move-cancel">Cancelar</button>
+    </div>
+    <p class="hint" style="margin-top:10px;"><b>Recorrer</b> empuja hacia adelante los trabajos que se empalman (respetando el horario del taller). <b>Siguiente espacio libre</b> deja los demás como están y coloca este donde quepa.</p>
+  </div>
+</div>
+
+<div class="modal-back" id="modal-edit">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 id="modal-title">Editar trabajo</h2>
+    <div class="form-grid">
+      <div class="field">
+        <label for="e-tipo">Tipo de trabajo</label>
+        <select id="e-tipo">
+          <option value="3d">Impresión 3D FDM</option>
+          <option value="sla">Impresión 3D SLA</option>
+          <option value="laser">Grabado láser</option>
+          <option value="uvdtf">Impresión UV DTF</option>
+        </select>
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="e-archivo">Archivo</label>
+        <input id="e-archivo" type="text">
+      </div>
+      <div class="field">
+        <label for="e-duracion">Duración (hrs)</label>
+        <input id="e-duracion" type="number" min="0.1" step="0.1">
+      </div>
+      <div class="field" id="e-multicolor-wrap">
+        <label for="e-multicolor">Multicolor</label>
+        <select id="e-multicolor">
+          <option value="no">No</option>
+          <option value="si">Sí</option>
+        </select>
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="e-proyecto">Nombre del proyecto</label>
+        <select id="e-proyecto"></select>
+      </div>
+      <div class="field hidden" id="e-proyecto-nuevo-wrap">
+        <label for="e-proyecto-nuevo">Proyecto nuevo</label>
+        <input id="e-proyecto-nuevo" type="text" maxlength="80" placeholder="Ej. Casco Shot">
+      </div>
+      <div class="field" style="grid-column: span 1;">
+        <label for="e-cliente">Cliente</label>
+        <select id="e-cliente"></select>
+      </div>
+      <div class="field hidden" id="e-cliente-nuevo-wrap">
+        <label for="e-cliente-nuevo">Cliente nuevo</label>
+        <input id="e-cliente-nuevo" type="text" maxlength="80" autocomplete="off">
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="e-presupuesto">URL del presupuesto</label>
+        <input id="e-presupuesto" type="url" maxlength="500" placeholder="https://…" autocomplete="off">
+      </div>
+      <div class="field" style="grid-column: span 3;">
+        <label for="e-impresora">Máquina</label>
+        <select id="e-impresora"></select>
+      </div>
+      <div class="field">
+        <label for="e-fecha">Inicio (fecha)</label>
+        <input id="e-fecha" type="date">
+      </div>
+      <div class="field">
+        <label for="e-hora">Inicio (hora)</label>
+        <input id="e-hora" type="time">
+      </div>
+    </div>
+    <label class="chk-inline hidden" id="e-lote-wrap"><input type="checkbox" id="e-lote" checked> <span id="e-lote-txt">Aplicar este proyecto también a las otras copias del lote</span></label>
+    <label class="chk-inline"><input type="checkbox" id="e-recorrer" checked> <span>Recorrer los trabajos siguientes de la máquina si se empalman con este (el tiempo que no se trabajó queda en blanco)</span></label>
+    <p class="hint" style="margin-top:10px;">Al guardar, este trabajo conserva el horario que indiques (ajustado al horario del taller). Si lo cambias de hora o duración, los trabajos que le siguen en la misma máquina se recorren solo lo necesario, respetando el orden. Si cambias solo el nombre, proyecto o tipo, nada se mueve.</p>
+    <div class="form-actions">
+      <button class="btn-secondary" id="e-cancelar">Cancelar</button>
+      <button class="btn-primary" id="e-guardar">Guardar cambios</button>
+    </div>
+    <div class="msg" id="e-msg"></div>
+  </div>
+</div>
+
+<script src="/produccion/app.js"></script>
+</body>
+</html>
