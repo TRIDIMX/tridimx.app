@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TRIDI MX">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>TRIDI MX · Gestor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=5.0">
+</head>
+<body>
+<aside class="sidebar" id="sidebar" aria-label="Secciones">
+  <div class="sb-head">
+    <a class="sb-logo" href="#" id="sbLogo" aria-label="TRIDI MX — inicio"><img class="lg-full" id="sbLogoFull" alt="TRIDI MX"><img class="lg-mark" id="sbLogoMark" alt=""></a>
+  </div>
+  <nav class="sb-nav" id="sbNav"></nav>
+  <div class="sb-foot">
+    <button class="sb-item sb-collapse" id="sbToggle" data-tip="Expandir menú" aria-label="Contraer menú"><span class="sb-ico"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5"/></svg></span><span class="sb-lbl">Contraer menú</span></button>
+  </div>
+</aside>
+<div class="sb-scrim" id="sbScrim"></div>
+<header class="topbar">
+  <button class="grid-btn" id="menuBtn" aria-label="Mostrar u ocultar menú lateral"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <a class="brand" href="#" id="brandLink" aria-label="TRIDI MX — inicio"><img id="topLogo" alt="TRIDI MX"></a>
+  <div class="crumb" id="crumb"></div>
+  <div class="top-right">
+    <span class="sync" id="syncBadge" title="Estado de guardado"></span>
+    <button class="bell-btn" id="bellBtn" aria-label="Notificaciones" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg><span class="bell-count" id="bellCount" hidden>0</span></button>
+    <button class="user-chip" id="userChip" aria-label="Menú de usuario"></button>
+  </div>
+</header>
+
+
+<main class="stage" id="stage"></main>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="logos.js?v=5.0"></script>
+<script src="pdf.js?v=5.0"></script>
+<script src="app.js?v=5.0"></script>
+</body>
+</html>
