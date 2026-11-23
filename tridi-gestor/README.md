@@ -1,4 +1,22 @@
-# TRIDI MX · Gestor (v6.4)
+# TRIDI MX · Gestor (v6.5)
+
+## Novedades v6.5
+- **Clientes**: nuevo subtítulo; teléfonos con liga a WhatsApp (wa.me, +52); columna opcional «Razón social».
+- **Proyectos**: «Obra» → **Cantidad / piezas**; el avance se calcula por piezas terminadas (general o por cada
+  servicio/fase, promedio de fases). «Dirección del proyecto» → **Descripción del proyecto**. Desde un presupuesto se
+  prellenan piezas, fases (líneas de servicio) y descripción.
+- **Correo**: los correos borrados/movidos en Hostinger se quitan del Gestor en la siguiente sincronización
+  (conciliación completa de UIDs); si abres uno ya borrado, se quita al momento. Nueva carpeta **Proveedores**
+  (catálogo con correos o dominios; «Asignar a proveedor» desde un correo).
+- **Cobranza → Facturas**: importar XML/PDF (varios a la vez; XML + PDF de la misma factura se juntan por UUID).
+  Liga automática por folio de presupuesto, código de proyecto, NoIdentificacion, RFC o cliente + total; si no hay
+  identificador queda **Por ligar**. Estado pendiente / liquidada (con fecha) / cancelada. Facturas de proveedores.
+- **Fiscal**: las facturas liquidadas entran solas como ingreso o egreso con su IVA/retenciones exactos, sin duplicar
+  los pagos de Cobranza ni capturas con el mismo folio/UUID. **Reporte PDF** con resumen, gráfica mensual, impuestos,
+  categorías y movimientos (periodo en pantalla, mes actual/anterior, año, global). Formas de pago editables
+  (incluye «Isaac Shturman»).
+
+# v6.4
 
 ## Novedades v6.4 — Fiscal (análisis, sin PAC)
 - Movimientos de **ingresos y egresos**: registrar, editar, duplicar y eliminar (permiso `fiscal`).

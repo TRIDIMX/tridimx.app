@@ -164,6 +164,8 @@ function dbFor(u) {
   if (can(u, 'proyectos') || u.role === 'admin') out.proyectos = db.proyectos || [];
   if (can(u, 'cobranza') || can(u, 'fiscal')) out.cobranza = db.cobranza || {};
   if (can(u, 'fiscal')) out.movimientos = db.movimientos || [];
+  if (can(u, 'cobranza') || can(u, 'fiscal')) out.facturas = db.facturas || [];
+  if (can(u, 'correo') || can(u, 'fiscal') || can(u, 'cobranza')) out.proveedores = db.proveedores || [];
   if (can(u, 'reporte')) out.reportes = db.reportes || [];
   else if (can(u, 'actividades') || can(u, 'proyectos')) out.reportes = (db.reportes || []).map(({ data, ...r }) => can(u, 'proyectos')
     ? { ...r, data: { componentes: ((data && data.componentes) || []).map(c => ({ sistema: c.sistema, estado: c.estado, observacion: c.observacion })) } } : r);
@@ -171,7 +173,7 @@ function dbFor(u) {
   out.colPrefs = (db.colPrefs || {})[u.username] || null;
   return out;
 }
-const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal', catalogos: 'admin', seeded: null, colPrefs: null };
+const PUT_PERM = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'admin', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal', facturas: ['cobranza', 'fiscal'], proveedores: ['correo', 'fiscal', 'cobranza'], catalogos: 'admin', seeded: null, colPrefs: null };
 
 /* ---------- Validación de usuarios ---------- */
 function cleanUserInput(b, isNew) {
@@ -252,7 +254,8 @@ const server = http.createServer(async (req, res) => {
       if (m && method === 'PUT') {
         const key = m[1];
         if (!(key in PUT_PERM)) return send(req, res, 400, { error: 'Colección inválida' });
-        if (PUT_PERM[key] === 'admin' ? me.role !== 'admin' : (PUT_PERM[key] && !can(me, PUT_PERM[key]))) return send(req, res, 403, { error: 'Sin permiso para este módulo' });
+        const need = PUT_PERM[key];
+        if (need === 'admin' ? me.role !== 'admin' : (need && !(Array.isArray(need) ? need.some(x => can(me, x)) : can(me, need)))) return send(req, res, 403, { error: 'Sin permiso para este módulo' });
         // Una pestaña con la versión anterior de los datos no puede sobrescribir datos ya migrados
         if ((db.schema || 1) >= 2 && ['clientes', 'proyectos', 'board', 'reportes', 'presupuestos'].includes(key) && String(req.headers['x-schema'] || '1') !== String(db.schema))
           return send(req, res, 409, { error: 'Los datos se actualizaron a una nueva estructura. Recarga la página.', reload: true });

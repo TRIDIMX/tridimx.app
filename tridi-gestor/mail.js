@@ -39,10 +39,12 @@ module.exports = function createMail(store, getDb) {
     get: sql.prepare('SELECT * FROM mail_msg WHERE id = ?'),
     all: sql.prepare('SELECT id, folder, uid, dir, msgid, date, from_addr, from_name, to_json, cc_json, subject, seen, flagged, has_att FROM mail_msg ORDER BY date DESC'),
     recent: sql.prepare('SELECT id, uid FROM mail_msg WHERE folder = ? AND date >= ?'),
+    inFolder: sql.prepare('SELECT id, uid FROM mail_msg WHERE folder = ?'),
     st: sql.prepare('SELECT * FROM mail_state WHERE folder = ?'),
     stPut: sql.prepare('INSERT OR REPLACE INTO mail_state (folder, path, uidvalidity, lastuid) VALUES (?, ?, ?, ?)')
   };
   const status = { enabled, user: cfg.user, lastSync: null, error: null, syncing: false };
+  const cache = new Map();
 
   const client = () => new ImapFlow({ host: cfg.imapHost, port: cfg.imapPort, secure: cfg.imapSecure, auth: { user: cfg.user, pass: cfg.pass }, logger: false, tls: cfg.insecure ? { rejectUnauthorized: false } : undefined, socketTimeout: 60000 });
   async function withImap(fn) {
@@ -62,7 +64,7 @@ module.exports = function createMail(store, getDb) {
   async function syncFolder(c, key, path) {
     if (!path) return 0;
     const lock = await c.getMailboxLock(path);
-    let added = 0;
+    let added = 0, removed = 0;
     try {
       const box = c.mailbox, uv = String(box.uidValidity);
       let st = q.st.get(key);
@@ -73,6 +75,7 @@ module.exports = function createMail(store, getDb) {
         const uids = await c.search({ since }, { uid: true });
         range = uids && uids.length ? uids.join(',') : null;
       } else range = `${st.lastuid + 1}:*`;
+      if (!box.exists) range = null;
       let maxUid = st.lastuid || 0;
       if (range) {
         const rows = [];
@@ -88,19 +91,20 @@ module.exports = function createMail(store, getDb) {
           added++;
         }));
       }
-      // banderas y borrados de los últimos 30 días (por si se leyó o borró en otro cliente)
-      const recent = q.recent.all(key, Date.now() - 30 * 864e5);
-      if (recent.length) {
-        const seen = new Map();
-        const minUid = Math.min(...recent.map(r => r.uid));
-        for await (const m of c.fetch(`${minUid}:*`, { uid: true, flags: true }, { uid: true })) seen.set(m.uid, m.flags || new Set());
-        store.tx(() => recent.forEach(r => {
-          const fl = seen.get(r.uid);
-          if (!fl) q.del.run(r.id); else q.flags.run(fl.has('\\Seen') ? 1 : 0, fl.has('\\Flagged') ? 1 : 0, r.id);
-        }));
+      // conciliación: lo que ya no existe en el servidor (borrado, movido o papelera vaciada) se quita del Gestor
+      const exist = new Set((await c.search({ all: true }, { uid: true })) || []);
+      const rows = q.inFolder.all(key), gone = rows.filter(r => !exist.has(r.uid));
+      if (gone.length) { store.tx(() => gone.forEach(r => { q.del.run(r.id); cache.delete(r.id); })); removed += gone.length; }
+      // banderas (leído / destacado) de los últimos 60 días, por si cambiaron en otro dispositivo
+      const recent = q.recent.all(key, Date.now() - 60 * 864e5).filter(r => exist.has(r.uid));
+      for (let i = 0; i < recent.length; i += 400) {
+        const chunk = recent.slice(i, i + 400), fl = new Map();
+        for await (const m of c.fetch(chunk.map(r => r.uid).join(','), { uid: true, flags: true }, { uid: true })) fl.set(m.uid, m.flags || new Set());
+        store.tx(() => chunk.forEach(r => { const f = fl.get(r.uid); if (f) q.flags.run(f.has('\\Seen') ? 1 : 0, f.has('\\Flagged') ? 1 : 0, r.id); }));
       }
       q.stPut.run(key, path, uv, maxUid);
     } finally { lock.release(); }
+    status.removed = (status.removed || 0) + removed;
     return added;
   }
   let running = null;
@@ -134,7 +138,14 @@ module.exports = function createMail(store, getDb) {
         const d = domOf(a); if (d && !GENERIC.has(d) && !byDom.has(d)) byDom.set(d, c);
       });
     });
-    return { byAddr, byDom };
+    const pByAddr = new Map(), pByDom = new Map();
+    (getDb().proveedores || []).forEach(pv => {
+      String(pv.emails || '').split(/[,;\s]+/).map(lc).filter(Boolean).forEach(x => {
+        if (x.includes('@')) { pByAddr.set(x, pv); const d = domOf(x); if (d && !GENERIC.has(d) && !pByDom.has(d)) pByDom.set(d, pv); }
+        else if (x.includes('.') && !GENERIC.has(x)) pByDom.set(x.replace(/^@/, ''), pv);
+      });
+    });
+    return { byAddr, byDom, pByAddr, pByDom };
   }
   const own = a => lc(a) === lc(cfg.user);
   function groupOf(row, idx) {
@@ -142,6 +153,8 @@ module.exports = function createMail(store, getDb) {
     if (row.dir === 'out' || own(peer)) { const to = JSON.parse(row.to_json || '[]'); peer = (to.find(t => !own(t.address)) || to[0] || {}).address || ''; }
     const c = idx.byAddr.get(peer) || idx.byDom.get(domOf(peer));
     if (c) return { key: 'c:' + c.id, label: c.nombre, type: 'cliente', peer };
+    const pv = idx.pByAddr.get(peer) || idx.pByDom.get(domOf(peer));
+    if (pv) return { key: 'p:' + pv.id, label: pv.nombre, type: 'proveedor', peer };
     const d = domOf(peer);
     if (d && !GENERIC.has(d)) return { key: 'd:' + d, label: d, type: 'dominio', peer };
     return { key: 'sin', label: 'Sin asignar', type: 'sin', peer };
@@ -174,7 +187,6 @@ module.exports = function createMail(store, getDb) {
   }
 
   /* ---- Lectura de un mensaje (con caché corta) ---- */
-  const cache = new Map();
   async function parsed(id) {
     if (cache.has(id)) return cache.get(id);
     const row = q.get.get(id); if (!row) throw Object.assign(new Error('Mensaje no encontrado'), { code: 404 });
@@ -183,7 +195,7 @@ module.exports = function createMail(store, getDb) {
       const lock = await c.getMailboxLock(st.path);
       try {
         const m = await c.fetchOne(String(row.uid), { source: true }, { uid: true });
-        if (!m || !m.source) throw Object.assign(new Error('El mensaje ya no está en el servidor'), { code: 404 });
+        if (!m || !m.source) { q.del.run(id); throw Object.assign(new Error('Este correo se eliminó en el servidor; se quitó de la bandeja'), { code: 410 }); }
         if (!row.seen && row.dir === 'in') { await c.messageFlagsAdd(String(row.uid), ['\\Seen'], { uid: true }); q.flags.run(1, row.flagged, id); }
         return simpleParser(m.source);
       } finally { lock.release(); }
@@ -306,7 +318,7 @@ module.exports = function createMail(store, getDb) {
       }
       h.send(req, res, 404, { error: 'No encontrado' }); return true;
     } catch (e) {
-      if (!res.headersSent) h.send(req, res, e.code === 404 ? 404 : e.code === 400 ? 400 : e.code === 413 ? 413 : 502, { error: e.code ? e.message : humanError(e) });
+      if (!res.headersSent) h.send(req, res, [400, 404, 410, 413].includes(e.code) ? e.code : 502, { error: e.code ? e.message : humanError(e), gone: e.code === 410 || e.code === 404 });
       return true;
     }
   }

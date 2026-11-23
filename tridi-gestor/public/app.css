@@ -1101,3 +1101,34 @@ a.plink{text-decoration:none;color:inherit}
 .fis-chk{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px}.fis-chk label{display:flex!important;align-items:center;gap:6px;font-size:12.5px!important;text-transform:none!important;letter-spacing:0!important;font-weight:600!important;color:var(--text)!important}
 @media (max-width:1000px){.fis-grid,.fis-grid2,.fis-kpis{grid-template-columns:1fr}}
 .fis-kpis{margin-bottom:14px}.fis-grid>.card{align-self:start}
+
+/* ---------- v6.5: WhatsApp ---------- */
+.wa-link{display:inline-flex;align-items:center;gap:5px;color:#128c4b;text-decoration:none;font-weight:600}
+.wa-link:hover{text-decoration:underline}
+.wa-link svg{width:15px;height:15px;flex:none}
+.wa-link.sm{font-size:11px;margin-left:6px;text-transform:none;letter-spacing:0}
+/* ---------- v6.5: avance por piezas ---------- */
+.pz-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0}
+.pz-row>span:first-child{font-size:13px;font-weight:600}
+.pz-row .input{width:80px;height:36px;text-align:center}
+.pz-row .icon-btn{border:1px solid var(--line);width:32px;height:32px;font-size:16px;font-weight:700}
+.pz-sys{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.pz-sys .input{width:76px;height:32px;text-align:center;padding:0 6px}
+.pd-desc{margin:6px 0 0;color:var(--text-2);font-size:13px;line-height:1.5;white-space:pre-line;max-width:760px}
+/* ---------- v6.5: proveedores en Correo ---------- */
+.mail-gt-act{display:flex;align-items:center;justify-content:space-between}
+.mail-gt-act .icon-btn{width:24px;height:24px}.mail-gt-act .icon-btn svg{width:13px;height:13px}
+.mail-gempty{margin:2px 8px 6px;font-size:11.5px;color:var(--faint)}
+.mg-ico.t-proveedor{background:#fff4e5;color:#b45309}
+.pv-rows{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.pv-row{display:grid;grid-template-columns:1fr 1.6fr 150px 36px;gap:8px;align-items:center}
+.pv-row .input{height:38px}
+@media (max-width:760px){.pv-row{grid-template-columns:1fr 36px}.pv-row [data-k=emails],.pv-row [data-k=rfc]{grid-column:1/2}}
+/* ---------- v6.5: facturas en Cobranza ---------- */
+.cob-view{margin:2px 0 14px}
+.fac-est{border:0;background:none;padding:0;cursor:pointer}
+.fac-link{margin-bottom:6px}
+.fac-docs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.fac-mini{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.fac-mini .chip svg{vertical-align:-1px}
+.grid3 .span3{grid-column:1/-1}

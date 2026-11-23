@@ -387,10 +387,108 @@
     return K.finish();
   }
 
+  /* ================= Reporte Fiscal (entradas / salidas) ================= */
+  function buildFiscalPDF(R0, libs) {
+    var K = setup(libs, { kind: 'Reporte fiscal', folio: R0.periodo, empresa: 'TRIDI MX', pie: 'Impresión 3D · Grabado Láser · Artículos Promocionales  ·  Estimados informativos; confirmar con el contador' });
+    var doc = K.doc, F = K.F, L = K.L, R = K.R, CW = K.CW;
+    var m$ = function (n) { return (n < 0 ? '-$' : '$') + money(Math.abs(n || 0)); };
+    var TEAL = [26, 143, 121], TEAL_L = [143, 224, 205], ORA = [194, 65, 12], ORA_L = [248, 180, 141], GOOD = [21, 128, 61], BAD = [190, 30, 30];
+    K.header();
+    K.titleBlock('REPORTE FISCAL', R0.periodo, 'Generado el ' + fmtLong(R0.hoy) + ' por ' + (R0.usuario || ''));
+    K.metaBand([[{ l: 'PERIODO', v: R0.periodo }, { l: 'FACTURACIÓN', v: R0.filtroFac }, { l: 'INCLUYE', v: R0.incluye }]]);
+
+    /* KPIs */
+    K.section('Resumen', 30);
+    var kw = (CW - 8) / 3, ky = K.y;
+    [['INGRESOS', R0.kpi.ti, GOOD, R0.kpi.si], ['EGRESOS', R0.kpi.te, BAD, R0.kpi.se], ['FLUJO NETO', R0.kpi.ut, R0.kpi.ut < 0 ? BAD : K.C.ink, R0.kpi.margen]].forEach(function (k, i) {
+      var x = L + i * (kw + 4);
+      K.fill(K.C.soft); doc.roundedRect(x, ky, kw, 25, 2, 2, 'F');
+      F('s', 6.4, K.C.muted); doc.text(k[0], x + 4, ky + 6, { charSpace: 0.5 });
+      F('b', 13, k[2]); doc.text(m$(k[1]), x + 4, ky + 14);
+      F('r', 6.8, K.C.muted); doc.text(doc.splitTextToSize(k[3], kw - 8).slice(0, 2), x + 4, ky + 19);
+    });
+    K.y = ky + 33;
+
+    /* Gráfica mensual */
+    K.section('Flujo mensual ' + R0.anioGrafica, 72);
+    var gy = K.y, gh = 52, gx = L + 12, gw = CW - 12, data = R0.mensual;
+    var max = 1; data.forEach(function (d) { max = Math.max(max, d.iF + d.iN, d.eF + d.eN); });
+    var base = gy + gh, sc = function (v) { return (gh - 4) * v / max; };
+    [0, 0.5, 1].forEach(function (f) { var yy = base - sc(max * f); K.hair(gx, yy, R, [232, 234, 238], 0.2); F('r', 6, K.C.faint); doc.text(max * f >= 1000 ? Math.round(max * f / 1000) + 'k' : String(Math.round(max * f)), gx - 2, yy + 1.5, { align: 'right' }); });
+    var cw = gw / 12, bw = cw * 0.3;
+    data.forEach(function (d, i) {
+      var x = gx + i * cw + cw * 0.17;
+      if (d.sel) { K.fill([230, 248, 243]); doc.rect(gx + i * cw, gy - 2, cw, gh + 2, 'F'); }
+      var stack = function (x0, a, b, cA, cB) { var ha = sc(a), hb = sc(b); if (ha > 0) { K.fill(cA); doc.rect(x0, base - ha, bw, ha, 'F'); } if (hb > 0) { K.fill(cB); doc.rect(x0, base - ha - hb, bw, hb, 'F'); } };
+      stack(x, d.iF, d.iN, TEAL, TEAL_L); stack(x + bw + 0.8, d.eF, d.eN, ORA, ORA_L);
+      F('r', 6.4, K.C.muted); doc.text(d.l, gx + i * cw + cw / 2, base + 4.5, { align: 'center' });
+    });
+    var ly = base + 10, lx = L;
+    [[TEAL, 'Ingresos con factura'], [TEAL_L, 'Ingresos sin factura'], [ORA, 'Egresos con factura'], [ORA_L, 'Egresos sin factura']].forEach(function (it) { K.fill(it[0]); doc.rect(lx, ly - 2.4, 3, 3, 'F'); F('r', 6.8, K.C.body); doc.text(it[1], lx + 4.5, ly); lx += doc.getTextWidth(it[1]) + 12; });
+    K.y = ly + 10;
+
+    /* Impuestos estimados */
+    var t = R0.tax;
+    K.section('Estimado de impuestos (informativo)', 46);
+    var col = (CW - 10) / 2, ty0 = K.y;
+    var block = function (x, title, rows) {
+      var y = ty0; F('s', 7, K.C.muted); doc.text(title, x, y, { charSpace: 0.5 }); y += 5.5;
+      rows.forEach(function (r) {
+        if (r.tot) { K.hair(x, y - 3.6, x + col, K.C.hair, 0.3); }
+        F(r.tot ? 's' : 'r', 8.2, r.c || (r.tot ? K.C.ink : K.C.body)); doc.text(doc.splitTextToSize(r.l, col - 32)[0], x, y);
+        F(r.tot ? 'b' : 's', 8.2, r.c || K.C.ink); doc.text(r.v, x + col, y, { align: 'right' }); y += 5.2;
+      });
+      return y;
+    };
+    var y1 = block(L, 'IVA', [{ l: 'Trasladado (ingresos facturados)', v: m$(t.ivaT) }].concat(t.ivaR ? [{ l: 'Retenido por clientes', v: '-' + m$(t.ivaR) }] : []).concat([{ l: 'Acreditable (gastos con factura)', v: '-' + m$(t.ivaA) }, { l: t.iva >= 0 ? 'IVA a pagar' : 'IVA a favor', v: m$(Math.abs(t.iva)), tot: 1 }]));
+    var y2 = block(L + col + 10, 'ISR RESICO', [{ l: 'Ingresos facturados cobrados (sin IVA)', v: m$(t.baseF) }, { l: 'Tasa', v: t.tasaTxt }, { l: 'ISR retenido por personas morales', v: '-' + m$(t.ret) }, { l: 'ISR estimado (solo facturado)', v: m$(t.isrPagarF), tot: 1 }].concat(t.baseN > 0 ? [{ l: 'Sumando ingresos sin factura (' + m$(t.baseN) + ')', v: m$(t.isrPagarA), c: ORA }] : []));
+    K.y = Math.max(y1, y2) + 2;
+    F('r', 7, K.C.muted); var nt = doc.splitTextToSize('En RESICO el ISR se calcula sobre todos los ingresos cobrados del mes (tasas de 1% a 2.5%); las ventas sin factura se amparan con factura global a público en general. Cifras estimadas; confirmar con el contador antes de declarar.', CW);
+    doc.text(nt, L, K.y); K.y += nt.length * 3.4 + 8;
+
+    /* Categorías */
+    var catBlock = function (title, rows, cA, cB) {
+      K.section(title, 14 + Math.min(rows.length, 6) * 7);
+      if (!rows.length) { F('r', 8, K.C.muted); doc.text('Sin movimientos en el periodo.', L, K.y); K.y += 8; return; }
+      var tot = rows.reduce(function (a, r) { return a + r.f + r.n; }, 0) || 1;
+      rows.forEach(function (r) {
+        K.ensure(8);
+        F('r', 8, K.C.body); doc.text(doc.splitTextToSize(r.k, CW - 40)[0], L, K.y);
+        F('s', 8, K.C.ink); doc.text(m$(r.f + r.n), R, K.y, { align: 'right' });
+        var by = K.y + 1.6; K.fill([242, 244, 247]); doc.rect(L, by, CW, 1.8, 'F');
+        var wf = CW * r.f / tot, wn = CW * r.n / tot; if (wf > 0) { K.fill(cA); doc.rect(L, by, wf, 1.8, 'F'); } if (wn > 0) { K.fill(cB); doc.rect(L + wf, by, wn, 1.8, 'F'); }
+        K.y += 7.2;
+      });
+      K.y += 4;
+    };
+    catBlock('Ingresos por categoría', R0.catI, TEAL, TEAL_L);
+    catBlock('Egresos por categoría', R0.catE, ORA, ORA_L);
+
+    /* Movimientos */
+    if (R0.movs && R0.movs.length) {
+      K.section('Movimientos (' + R0.movs.length + ')', 30);
+      var fR = K.FAM.r, fS = K.FAM.s;
+      K.table({
+        startY: K.y, theme: 'plain', margin: { left: L, right: K.W - R, top: K.TOP_NEXT + 2, bottom: K.H - K.BOTTOM },
+        head: [['FECHA', 'TIPO', 'CONCEPTO', 'CATEGORÍA', 'FACTURA', 'SUBTOTAL', 'IVA', 'TOTAL']],
+        body: R0.movs.map(function (m) { return [fmt(m.fecha), m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso', (m.descripcion || '') + (m.contraparte ? '\n' + m.contraparte : ''), m.categoria || '', m.fac, money(m.subtotal), m.iva ? money(m.iva) : '—', (m.tipo === 'egreso' ? '-' : '') + money(m.total)]; }),
+        styles: { font: fR[0], fontStyle: fR[1], fontSize: 7.2, textColor: K.C.body, cellPadding: { top: 2, bottom: 2, left: 1.5, right: 1.5 }, valign: 'top', lineWidth: 0 },
+        headStyles: { font: fS[0], fontStyle: fS[1], fontSize: 6, textColor: K.C.muted },
+        columnStyles: { 0: { cellWidth: 17 }, 1: { cellWidth: 14 }, 3: { cellWidth: 30 }, 4: { cellWidth: 19 }, 5: { cellWidth: 21, halign: 'right' }, 6: { cellWidth: 17, halign: 'right' }, 7: { cellWidth: 22, halign: 'right', font: fS[0], fontStyle: fS[1], textColor: K.C.ink } },
+        didParseCell: function (h) { if (h.section === 'head' && h.column.index >= 5) h.cell.styles.halign = 'right'; if (h.section === 'body' && h.column.index === 7) h.cell.styles.textColor = R0.movs[h.row.index].tipo === 'egreso' ? BAD : GOOD; },
+        didDrawCell: function (h) { var c = h.cell; K.hair(c.x, c.y + c.height, c.x + c.width, h.section === 'head' ? K.C.ink : K.C.hair, h.section === 'head' ? 0.35 : 0.2); },
+        didDrawPage: function (h) { if (h.pageNumber > 1) K.header(); }
+      });
+      K.y = doc.lastAutoTable.finalY + 6;
+    }
+    return K.finish();
+  }
+  root.buildFiscalPDF = buildFiscalPDF;
+
   root.buildReportPDF = buildReportPDF;
   root.buildBudgetPDF = buildBudgetPDF;
   root.AGIS_budgetTotals = budgetTotals;
   root.AGIS_importeLetras = importeLetras;
   root.AGIS_money = money;
-  if (typeof module !== 'undefined' && module.exports) module.exports = { buildReportPDF: buildReportPDF, buildBudgetPDF: buildBudgetPDF, budgetTotals: budgetTotals, importeLetras: importeLetras, money: money };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { buildReportPDF: buildReportPDF, buildFiscalPDF: buildFiscalPDF, buildBudgetPDF: buildBudgetPDF, budgetTotals: budgetTotals, importeLetras: importeLetras, money: money };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -8,6 +8,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 const pad = n => String(n).padStart(2, '0');
 const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+const MES_L = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const localISO = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const todayISO = () => localISO(new Date());
@@ -61,6 +62,8 @@ const ICON = {
   key: I('<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>'),
   home: I('<path d="M4 11 12 4l8 7"/><path d="M6 9.5V19a1 1 0 0 0 1 1h3.5v-5h3v5H17a1 1 0 0 0 1-1V9.5"/>'),
   bell: I('<path d="M6 9a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 14 6 9z"/><path d="M10 19a2 2 0 0 0 4 0"/>'),
+  wa: I('<path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.6 18.6z"/><path d="M9.2 8.6c.3 1.9 2.4 4.4 4.6 5.1l1.1-1.1 1.6.8c-.2 1-.9 1.7-1.9 1.6-3.2-.4-6-3.4-6.3-6.4-.1-1 .6-1.7 1.6-1.9l.8 1.6z"/>'),
+  truck: I('<path d="M3 6h11v10H3z"/><path d="M14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/>'),
   wallet: I('<path d="M3 7a2 2 0 0 1 2-2h12v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15V9H5a2 2 0 0 1-2-2z"/><circle cx="16" cy="14.5" r="1.2"/>'),
   receipt: I('<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>'),
   printer: I('<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M8 7h8v6H8z"/><path d="M12 13v3M9 18h6"/>'),
@@ -86,6 +89,9 @@ const REGIMENES = [
   { k: '616', l: 'Sin obligaciones fiscales' }, { k: '621', l: 'Incorporación Fiscal' }, { k: '625', l: 'Plataformas Tecnológicas' },
   { k: '626', l: 'Régimen Simplificado de Confianza (RESICO)' }
 ];
+/* Teléfono con liga a WhatsApp (México: 10 dígitos → +52) */
+const waNumber = t => { let d = String(t || '').replace(/\D/g, ''); if (d.length === 10) d = '52' + d; else if (d.length === 12 && d.startsWith('52')) {} else if (d.length === 13 && d.startsWith('521')) d = '52' + d.slice(3); return d.length >= 11 ? d : ''; };
+const telLink = t => { if (!t) return '—'; const n = waNumber(t); return n ? `<a class="wa-link" href="https://wa.me/${n}" target="_blank" rel="noopener" title="Enviar WhatsApp" data-nopen>${ICON.wa}${esc(t)}</a>` : esc(t); };
 const clientLabel = c => `${c.nombre}${c.rfc ? ' · ' + c.rfc : ''}`;
 const svcClass = s => 'c' + (Math.max(0, SERVICIOS.indexOf(s)) % 10);
 const TIPOS = [
@@ -225,6 +231,8 @@ const Store = {
     if (!Array.isArray(this.data.proyectos)) this.data.proyectos = [];
     if (!this.data.cobranza || typeof this.data.cobranza !== 'object') this.data.cobranza = {};
     if (!Array.isArray(this.data.movimientos)) this.data.movimientos = [];
+    if (!Array.isArray(this.data.proveedores)) this.data.proveedores = [];
+    if (!Array.isArray(this.data.facturas)) this.data.facturas = [];
     if (!this.data.catalogos) this.data.catalogos = { secciones: [...SECCIONES_DEF], unidades: [...UNIDADES_DEF] };
     if (!this.data.board) { this.data.board = seedBoard(); if (can('actividades')) this.save('board'); }
     if (!this.data.seeded && !this.data.clientes.length && can('clientes')) {
@@ -242,11 +250,11 @@ const Store = {
   async reload() {
     if (this.mode !== 'api') return;
     const fresh = await Api.req('GET', 'api/db');
-    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos', 'cobranza', 'movimientos'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
+    ['clientes', 'board', 'reportes', 'presupuestos', 'proyectos', 'config', 'catalogos', 'cobranza', 'movimientos', 'proveedores', 'facturas'].forEach(k => { if (fresh[k] !== undefined && fresh[k] !== null) this.data[k] = fresh[k]; });
   },
   save(key) {
-    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal' }[key];
-    if (need && !can(need)) return;
+    const need = { clientes: 'clientes', board: 'actividades', config: 'actividades', reportes: 'reporte', presupuestos: 'presupuesto', proyectos: 'proyectos', cobranza: 'cobranza', movimientos: 'fiscal', facturas: ['cobranza', 'fiscal'], proveedores: ['correo', 'fiscal', 'cobranza'] }[key];
+    if (need && !(Array.isArray(need) ? need.some(x => can(x)) : can(need))) return;
     if (key === 'catalogos' && !isAdmin()) return;
     if (this.mode === 'api') {
       Api.req('PUT', 'api/db/' + key, this.data[key]).catch(e => { if (e.status !== 401) toast(e.status === 403 ? 'Sin permiso para guardar en este módulo' : 'No se pudo guardar en el servidor', true); });
@@ -733,7 +741,8 @@ const CS2 = { tab: 'all', q: '', page: 1, sel: new Set(), sort: 'nombre', dir: 1
 const projChips = cid => { const ps = projectsOf(cid); return ps.length ? `<div class="chips">${ps.slice(0, 3).map(p => `<span class="chip pchipx" style="--sc:${pestOf(p.estatus).c}"><i></i>${esc(p.nombre)}</span>`).join('')}${ps.length > 3 ? `<span class="chip">+${ps.length - 3}</span>` : ''}</div>` : '<span class="meta-line">Sin proyectos</span>'; };
 const CLIENT2_COLS = [
   { k: 'rfc', l: 'RFC', sort: true, def: true, w: 140, render: c => c.rfc ? `<span class="mono">${esc(c.rfc)}</span>${c.rfc.length === 12 ? ' <small class="meta-line">PM</small>' : ''}` : '<span class="meta-line">—</span>' },
-  { k: 'telefono', l: 'Teléfono', def: true, w: 130, render: c => esc(c.telefono || '—') },
+  { k: 'razonSocial', l: 'Razón social', sort: true, w: 220, render: c => c.razonSocial ? `<span class="clip">${esc(c.razonSocial)}</span>` : '<span class="meta-line">—</span>' },
+  { k: 'telefono', l: 'Teléfono', def: true, w: 150, render: c => telLink(c.telefono) },
   { k: 'email', l: 'Correo', sort: true, def: true, w: 190, render: c => esc(c.email || '—') },
   { k: 'proyectos', l: 'Proyectos', def: true, w: 280, cls: () => 'svc', render: c => `<button class="cell-btn" data-projs="${esc(c.id)}" title="Ver proyectos">${projChips(c.id)}</button>` },
   { k: 'saldo', l: 'Saldo pendiente', sort: true, def: true, right: true, w: 150, cls: c => 'money ' + (saldoOf(c.id) > 0 ? '' : 'zero'), render: c => `<button class="cell-btn saldo-btn" data-saldo="${esc(c.id)}" title="Ver desglose por proyecto">${fmtSaldo(clientSaldo(c.id))}</button>` },
@@ -777,7 +786,7 @@ function renderClientes2(stage) {
   stage.innerHTML = `
   <section class="panel" id="clientes2">
     <div class="view-head">
-      <div><h1>Clientes</h1><p>Personas y empresas con las que trabajamos. Sus obras y saldos viven en Proyectos.</p></div>
+      <div><h1>Clientes</h1><p>Información de clientes y sus servicios contratados.</p></div>
       <div class="actions"><button class="btn" data-act="export">${ICON.download}Exportar</button><button class="btn primary" data-act="new">${ICON.plus}Crear nuevo</button></div>
     </div>
     <div class="tabs" id="c2Tabs"></div>
@@ -832,6 +841,7 @@ function renderClientes2(stage) {
     const more = e.target.closest('[data-more]');
     if (more) { const c = Store.data.clientes.find(x => x.id === more.dataset.more); return popMenu(more, [{ label: 'Editar', icon: 'edit', run: () => clientForm2(c) }, ...(can('proyectos') ? [{ label: 'Nuevo proyecto', icon: 'folder', run: () => newProjectFor(c) }] : []), '-', { label: 'Eliminar', icon: 'trash', danger: true, run: () => deleteClient2(c) }]); }
     if (e.target.closest('input[type=checkbox]')) return;
+    if (e.target.closest('[data-nopen]')) return;
     const tr = e.target.closest('tr[data-id]'); if (tr) clientForm2(Store.data.clientes.find(x => x.id === tr.dataset.id));
   });
   document.addEventListener('pointerdown', function out(ev) { if (!document.body.contains(root)) { document.removeEventListener('pointerdown', out, true); return; } $$('#clientes2 .dropdown:not(.hidden)').forEach(dd => { if (!dd.parentElement.contains(ev.target)) dd.classList.add('hidden'); }); }, true);
@@ -886,7 +896,7 @@ function clientForm2(c) {
         <div class="field"><label>Razón social <small class="meta-line">(como aparece en su constancia)</small></label><input class="input" name="razonSocial" value="${esc(c.razonSocial || '')}"></div>
         <div class="field"><label>Régimen fiscal</label><select class="input" name="regimen"><option value="">—</option>${REGIMENES.map(r => `<option value="${r.k}" ${c.regimen === r.k ? 'selected' : ''}>${r.k} · ${esc(r.l)}</option>`).join('')}</select></div>
         <div class="field"><label>C.P. fiscal</label><input class="input mono" name="cp" value="${esc(c.cp || '')}" maxlength="5" inputmode="numeric"></div>
-        <div class="field"><label>Teléfono</label><input class="input" name="telefono" type="tel" value="${esc(c.telefono)}"></div>
+        <div class="field"><label>Teléfono${waNumber(c.telefono) ? ` <a class="wa-link sm" href="https://wa.me/${waNumber(c.telefono)}" target="_blank" rel="noopener">${ICON.wa}WhatsApp</a>` : ''}</label><input class="input" name="telefono" type="tel" value="${esc(c.telefono)}" placeholder="10 dígitos"></div>
         <div class="field"><label>Correo</label><input class="input" name="email" type="email" value="${esc(c.email)}"></div>
         <div class="field span2"><label>Notas</label><textarea class="input" name="notas" rows="3">${esc(c.notas)}</textarea></div>
         ${!isNew ? `<div class="field span2"><label>Proyectos (${ps.length})</label><div class="plinks">${ps.map(p => `<div class="plink" data-openp="${p.id}">${ICON.folder}<span><b>${esc(p.nombre)}</b><small>${esc(p.codigo)} · ${esc(pestOf(p.estatus).l)}${projSaldo(p).n ? ' · Saldo ' + fmtSaldo(projSaldo(p)) : ''}</small></span>${ICON.right}</div>`).join('') || '<span class="meta-line">Sin proyectos.</span>'}</div>
@@ -2235,8 +2245,27 @@ function progressOf(cards, manual) {
   const isManual = manual !== null && manual !== undefined && manual !== '';
   return { calc, done, total, manual: isManual, value: isManual ? Math.max(0, Math.min(100, +manual)) : calc };
 }
-const projProgress = p => progressOf(projCards(p.id), p.avanceManual);
-const sysProgress = (p, s) => progressOf(projCards(p.id, s.id), s.avanceManual);
+/* Avance: manual > por piezas (general o promedio de fases) > por actividades */
+const projPiezas = p => Math.max(0, parseInt(p.piezas, 10) || 0);
+const isSet = v => v !== null && v !== undefined && v !== '';
+const clamp100 = v => Math.max(0, Math.min(100, +v || 0));
+function projProgress(p) {
+  const act = progressOf(projCards(p.id), null), n = projPiezas(p), sis = p.sistemas || [];
+  let calc = act.calc, mode = 'actividades', detail = `${act.done} de ${act.total} actividades terminadas`;
+  if (n) {
+    mode = 'piezas';
+    if (sis.length) { calc = Math.round(sis.reduce((a, x) => a + Math.min(n, +x.piezasHechas || 0) / n, 0) / sis.length * 100); detail = `promedio de ${sis.length} fase${sis.length > 1 ? 's' : ''} · ${n} pieza${n > 1 ? 's' : ''}`; }
+    else { const h = Math.min(n, +p.piezasHechas || 0); calc = Math.round(h / n * 100); detail = `${h} de ${n} pieza${n > 1 ? 's' : ''} terminadas`; }
+  }
+  const manual = isSet(p.avanceManual);
+  return { ...act, calc, mode, detail, manual, value: manual ? clamp100(p.avanceManual) : calc };
+}
+function sysProgress(p, s) {
+  const act = progressOf(projCards(p.id, s.id), null), n = projPiezas(p);
+  if (n) { act.hechas = Math.min(n, +s.piezasHechas || 0); act.calc = Math.round(act.hechas / n * 100); act.mode = 'piezas'; }
+  const manual = isSet(s.avanceManual);
+  return { ...act, manual, value: manual ? clamp100(s.avanceManual) : act.calc };
+}
 function projReports(p) {
   const ids = new Set();
   projCards(p.id).forEach(x => (x.card.reportIds || []).forEach(id => ids.add(id)));
@@ -2339,7 +2368,8 @@ function renderProjectDetail(stage, p) {
       <div class="pd-title">
         <div><span class="pstat" style="--sc:${st.c}">${esc(st.l)}</span> <span class="health h-${h.k}"><i></i>${esc(h.l)}</span></div>
         <h1>${esc(p.nombre)}</h1>
-        <p>${esc(p.codigo)} · ${esc(p.clienteNombre || 'Sin cliente')}${p.obra ? ' · ' + esc(p.obra) : ''}${p.direccion ? ' · ' + esc(p.direccion) : ''}</p>
+        <p>${esc(p.codigo)} · ${esc(p.clienteNombre || 'Sin cliente')}${projPiezas(p) ? ' · ' + projPiezas(p) + ' pieza' + (projPiezas(p) > 1 ? 's' : '') : ''}</p>
+        ${p.direccion ? `<p class="pd-desc">${esc(p.direccion)}</p>` : ''}
       </div>
       ${canEdit ? `<div class="actions"><button class="btn" data-act="pedit">${ICON.edit}Editar</button><button class="icon-btn" data-act="pmore" aria-label="Más opciones">${ICON.more}</button></div>` : ''}
     </div>
@@ -2350,15 +2380,17 @@ function renderProjectDetail(stage, p) {
           <div class="pd-prog">
             ${donut(pr.value, 110, st.c)}
             <div class="pd-prog-info">
-              <p><b>Calculado por actividades:</b> ${pr.calc}% <span class="meta-line">(${pr.done} de ${pr.total} terminadas)</span></p>
+              <p><b>Calculado por ${pr.mode === 'piezas' ? 'piezas' : 'actividades'}:</b> ${pr.calc}% <span class="meta-line">(${esc(pr.detail)})</span></p>
+              ${pr.mode === 'piezas' && !(p.sistemas || []).length && canEdit ? `<div class="pz-row"><span>Piezas terminadas</span><button class="icon-btn" data-pz="-1" title="Restar">−</button><input class="input" type="number" min="0" max="${projPiezas(p)}" id="pzVal" value="${Math.min(projPiezas(p), +p.piezasHechas || 0)}"><button class="icon-btn" data-pz="1" title="Sumar">+</button><span class="meta-line">de ${projPiezas(p)}</span><button class="btn sm" data-act="pzsave">Guardar</button></div>` : ''}
+              ${pr.mode !== 'piezas' && canEdit ? `<p class="meta-line">Tip: captura la <b>Cantidad / piezas</b> en Editar para calcular el avance por piezas terminadas.</p>` : ''}
               ${canEdit ? `<div class="ovr"><input class="input" type="number" min="0" max="100" id="ovrVal" value="${pr.manual ? pr.value : ''}" placeholder="%"><button class="btn sm" data-act="ovrset">Fijar manual</button>${pr.manual ? `<button class="btn sm ghost" data-act="ovrreset">${ICON.reset}Restablecer a calculado</button>` : ''}</div>` : ''}
             </div>
           </div>
         </div>
         <div class="card">
-          <div class="card-h"><h2>Sistemas</h2>${canEdit ? `<button class="btn sm" data-act="sysadd">${ICON.plus}Sistema</button>` : ''}</div>
+          <div class="card-h"><h2>Servicios / fases</h2>${canEdit ? `<button class="btn sm" data-act="sysadd">${ICON.plus}Servicio</button>` : ''}</div>
           <div class="syslist">${(p.sistemas || []).length ? p.sistemas.map(s => { const sp = sysProgress(p, s); return `
-            <div class="sysrow"><div class="sys-h"><b>${esc(s.nombre)}</b><span>${sp.value}%${sp.manual ? ' <em>manual</em>' : ''}</span>${canEdit ? `<button class="icon-btn" data-sysmenu="${s.id}" aria-label="Opciones">${ICON.more}</button>` : ''}</div>${bar(sp.value)}<small>${sp.done}/${sp.total} actividades</small></div>`; }).join('') : '<p class="meta-line">Agrega las líneas de trabajo del proyecto (impresión 3D, grabado, armado…) para ver el avance de cada una.</p>'}</div>
+            <div class="sysrow"><div class="sys-h"><b>${esc(s.nombre)}</b><span>${sp.value}%${sp.manual ? ' <em>manual</em>' : ''}</span>${canEdit ? `<button class="icon-btn" data-sysmenu="${s.id}" aria-label="Opciones">${ICON.more}</button>` : ''}</div>${bar(sp.value)}${sp.mode === 'piezas' ? `<div class="pz-sys"><small>Piezas terminadas en esta fase:</small>${canEdit ? `<input class="input" type="number" min="0" max="${projPiezas(p)}" data-sysp="${s.id}" value="${sp.hechas}">` : `<b>${sp.hechas}</b>`}<small>de ${projPiezas(p)} · ${sp.done}/${sp.total} actividades</small></div>` : `<small>${sp.done}/${sp.total} actividades</small>`}</div>`; }).join('') : '<p class="meta-line">Agrega las líneas de trabajo del proyecto (impresión 3D, grabado, armado…) para ver el avance de cada una.</p>'}</div>
         </div>
         <div class="card">
           <div class="card-h"><h2>Actividades</h2>${can('actividades') ? `<button class="btn sm primary" data-act="pcard">${ICON.plus}Nueva actividad</button>` : ''}</div>
@@ -2418,6 +2450,11 @@ function renderProjectDetail(stage, p) {
   </section>`;
   const root = $('#proyecto');
   const save = () => { p.updated = new Date().toISOString(); Store.save('proyectos'); renderProjectDetail(stage, p); };
+  root.addEventListener('change', e => {
+    const sid = e.target.dataset.sysp; if (!sid) return;
+    const s = (p.sistemas || []).find(x => x.id === sid); if (!s) return;
+    s.piezasHechas = Math.max(0, Math.min(projPiezas(p), parseInt(e.target.value, 10) || 0)); save();
+  });
   root.addEventListener('click', e => {
     const a = e.target.closest('[data-act]')?.dataset.act;
     if (a === 'pback') { PS.view = 'list'; return renderProyectos(stage); }
@@ -2431,6 +2468,8 @@ function renderProjectDetail(stage, p) {
       } }]);
     if (a === 'ovrset') { const v = parseFloat($('#ovrVal').value); if (isNaN(v) || v < 0 || v > 100) return toast('Escribe un % entre 0 y 100', true); p.avanceManual = Math.round(v); toast('Avance fijado manualmente'); return save(); }
     if (a === 'ovrreset') { p.avanceManual = null; toast('Avance restablecido a calculado'); return save(); }
+    const pzb = e.target.closest('[data-pz]'); if (pzb) { const inp = $('#pzVal'); inp.value = Math.max(0, Math.min(projPiezas(p), (parseInt(inp.value, 10) || 0) + +pzb.dataset.pz)); return; }
+    if (a === 'pzsave') { p.piezasHechas = Math.max(0, Math.min(projPiezas(p), parseInt($('#pzVal').value, 10) || 0)); toast(`${p.piezasHechas} de ${projPiezas(p)} piezas terminadas`); return save(); }
     if (a === 'sysadd') return sistemaPicker((p.sistemas || []).map(x => x.nombre), names => { p.sistemas = p.sistemas || []; names.forEach(n => p.sistemas.push({ id: uid(), nombre: n, avanceManual: null })); save(); });
     if (a === 'pcard') return cardForm(null, Store.data.board.columns[0].id, { proyectoId: p.id });
     const sm = e.target.closest('[data-sysmenu]');
@@ -2486,12 +2525,12 @@ function projectForm(p, prefill) {
   openModal({
     title: isNew ? 'Nuevo proyecto' : 'Editar proyecto', size: 'wide',
     body: `<div class="grid2">
-      <div class="field span2"><label>Nombre del proyecto <span class="req">*</span></label><input class="input" name="nombre" value="${esc(p.nombre)}" autofocus placeholder="Ej. Automatización Residencia Bosques"></div>
+      <div class="field span2"><label>Nombre del proyecto <span class="req">*</span></label><input class="input" name="nombre" value="${esc(p.nombre)}" autofocus placeholder="Ej. Torres de bloques DEWA"></div>
       <div class="field"><label>Cliente <span class="req">*</span></label><select class="input" name="clienteId"><option value="">Seleccionar…</option>${clientes.map(c => `<option value="${esc(c.id)}" ${p.clienteId === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select></div>
       <div class="field"><label>Código</label><input class="input mono" name="codigo" value="${esc(p.codigo)}"></div>
-      <div class="field"><label>Obra</label><input class="input" name="obra" value="${esc(p.obra)}"></div>
+      <div class="field"><label>Cantidad / piezas</label><input class="input" type="number" min="0" step="1" name="piezas" value="${esc(p.piezas || '')}" placeholder="Ej. 62"><small class="meta-line">Con esto el avance se calcula por piezas terminadas (por cada servicio/fase si hay varios).</small></div>
       <div class="field"><label>Estatus</label><select class="input" name="estatus">${PEST.map(s => `<option value="${s.k}" ${p.estatus === s.k ? 'selected' : ''}>${s.l}</option>`).join('')}</select></div>
-      <div class="field span2"><label>Dirección del proyecto</label><input class="input" name="direccion" value="${esc(p.direccion)}"></div>
+      <div class="field span2"><label>Descripción del proyecto</label><textarea class="input" name="direccion" rows="3" placeholder="Qué se va a fabricar, materiales, acabados, entrega…">${esc(p.direccion || '')}</textarea></div>
       <div class="field"><label>Origen</label><select class="input" name="origen"><option value="">Seleccionar…</option>${ORIGENES.map(o => `<option ${p.origen === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></div>
       <div class="field"><label>Saldo pendiente</label><div class="ro-line">${isNew ? 'Se calcula con los presupuestos vinculados' : fmtSaldo(projSaldo(p))}</div></div>
       <div class="field"><label>Inicio</label><input class="input" type="date" name="fechaInicio" value="${esc(p.fechaInicio)}"></div>
@@ -2527,7 +2566,7 @@ function projectForm(p, prefill) {
         const changed = origFin && ff && ff !== origFin;
         if (changed && !f('motivo').value.trim()) { f('motivo').classList.add('invalid'); f('motivo').focus(); return toast('Escribe el motivo del cambio de fecha', true); }
         const c = Store.data.clientes.find(x => x.id === clienteId);
-        const rec = { nombre, clienteId, clienteNombre: c ? c.nombre : '', codigo: f('codigo').value.trim() || nextProjectCode(), obra: f('obra').value.trim(), estatus: f('estatus').value, direccion: f('direccion').value.trim(), fechaInicio: fi, fechaFin: ff, responsable: f('responsable').value.trim(), equipo: [...eq], notas: f('notas').value.trim(), origen: f('origen').value, updated: new Date().toISOString() };
+        const rec = { nombre, clienteId, clienteNombre: c ? c.nombre : '', codigo: f('codigo').value.trim() || nextProjectCode(), obra: p.obra || '', piezas: Math.max(0, parseInt(f('piezas').value, 10) || 0), estatus: f('estatus').value, direccion: f('direccion').value.trim(), fechaInicio: fi, fechaFin: ff, responsable: f('responsable').value.trim(), equipo: [...eq], notas: f('notas').value.trim(), origen: f('origen').value, updated: new Date().toISOString() };
         let target;
         if (isNew) {
           const sis = [...sysSel].map(n => ({ id: uid(), nombre: n, avanceManual: null }));
@@ -2540,7 +2579,7 @@ function projectForm(p, prefill) {
           target = projById(p.id);
           if (changed) (target.reprogramaciones = target.reprogramaciones || []).push({ de: origFin, a: ff, motivo: f('motivo').value.trim(), origen, by: ME.username, byName: userName(), at: new Date().toISOString() });
           Object.assign(target, rec);
-          if (target.pendientes && target.direccion) target.pendientes = target.pendientes.filter(x => !x.startsWith('Dirección'));
+          if (target.pendientes && target.direccion) target.pendientes = target.pendientes.filter(x => !x.startsWith('Dirección') && !x.startsWith('Descripción'));
           if (!target.fechaFinBase && ff) target.fechaFinBase = ff;
           toast(changed ? 'Fecha reprogramada (se conserva la original)' : 'Proyecto actualizado');
         }
@@ -2557,7 +2596,9 @@ function projectFromBudget(b) {
   const d = b.data || {};
   const sis = d.sistemaNombre && !/^sistema general$/i.test(d.sistemaNombre.trim()) ? [{ id: uid(), nombre: d.sistemaNombre, avanceManual: null }] : [];
   if (current !== 'proyectos') go('proyectos');
-  projectForm(null, { nombre: b.titulo || d.titulo || d.obra || '', clienteId: b.clienteId || d.clienteId || '', obra: d.obra || '', direccion: d.lugar && !/^ciudad de méxico/i.test(d.lugar) ? d.lugar : '', presupuestoIds: [b.id], sistemas: sis });
+  const parts = d.partidas || [], secs = [...new Set(parts.map(x => x.seccion).filter(Boolean))];
+  const piezas = parts.length === 1 ? Math.round(+parts[0].cantidad || 0) : (parts.length && parts.every(x => /^(pza|pieza|pz)$/i.test(x.unidad || '')) ? Math.max(...parts.map(x => Math.round(+x.cantidad || 0))) : 0);
+  projectForm(null, { nombre: b.titulo || d.titulo || d.obra || '', clienteId: b.clienteId || d.clienteId || '', obra: d.obra || '', piezas, direccion: parts.map(x => x.concepto).join(' · ').slice(0, 400), presupuestoIds: [b.id], sistemas: sis.length ? sis : secs.length > 1 ? secs.map(n => ({ id: uid(), nombre: n, avanceManual: null })) : [] });
 }
 function pickBudgetForProject() {
   const list = Store.data.presupuestos.filter(b => !(b.proyectoId && projById(b.proyectoId)));
@@ -2570,7 +2611,7 @@ function pickBudgetForProject() {
 }
 
 /* ================= COBRANZA ================= */
-const FORMAS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Depósito', 'Cheque', 'Otro'];
+const FORMAS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Depósito', 'Cheque', 'Isaac Shturman', 'Otro'];
 const TIPOS_PAGO = { anticipo: 'Anticipo', pago: 'Pago parcial', liquidacion: 'Liquidación' };
 const CB = { tab: 'abiertas', q: '' };
 const cobMap = () => (Store.data.cobranza = Store.data.cobranza || {});
@@ -2611,24 +2652,38 @@ function renderCobranza(stage) {
   stage.innerHTML = `
   <section class="panel" id="cobranza">
     <div class="view-head">
-      <div><h1>Cobranza</h1><p>Pagos y anticipos por presupuesto aprobado, saldos pendientes y cuentas vencidas.</p></div>
-      <div class="actions"><button class="btn" data-act="cexport">${ICON.download}Exportar</button><button class="btn primary" data-act="cadd">${ICON.plus}Agregar presupuesto</button></div>
+      <div><h1>Cobranza</h1><p>Pagos y anticipos por presupuesto, facturas emitidas y recibidas, saldos pendientes y cuentas vencidas.</p></div>
+      <div class="actions"><button class="btn" data-act="cexport">${ICON.download}Exportar</button><button class="btn" data-act="cfimport">${ICON.receipt}Importar facturas</button><button class="btn primary" data-act="cadd">${ICON.plus}Agregar presupuesto</button></div>
     </div>
+    <div class="seg cob-view" id="cbView"><button data-cbview="cuentas">Cuentas por presupuesto</button><button data-cbview="facturas">Facturas</button></div>
+    <div id="cbFact"></div>
+    <div id="cbCuentas">
     <div class="kpis cob-kpis" id="cbKpis"></div>
     <div class="tabs" id="cbTabs"></div>
     <div class="toolbar"><div class="search">${ICON.search}<input class="input" id="cbSearch" placeholder="Buscar folio, cliente, RFC o proyecto…" value="${esc(CB.q)}"></div></div>
     <div class="table-wrap"><div class="table-scroll"><table class="dt cob-dt"><thead><tr><th>Folio / proyecto</th><th>Cliente</th><th>Método</th><th class="r">Total</th><th class="r">Pagado</th><th class="r">Saldo</th><th>Vence</th><th>Estado</th><th></th></tr></thead><tbody id="cbBody"></tbody></table></div></div>
+    </div>
   </section>`;
   const root = $('#cobranza');
   $('#cbSearch').addEventListener('input', debounce(e => { CB.q = e.target.value; drawCobranza(); }, 160));
   root.addEventListener('click', e => {
     const t = e.target.closest('[data-cbtab]'); if (t) { CB.tab = t.dataset.cbtab; drawCobranza(); return; }
+    const v = e.target.closest('[data-cbview]'); if (v) { FB.view = v.dataset.cbview; cobView(); return; }
+    const ft = e.target.closest('[data-fbtab]'); if (ft) { FB.tab = ft.dataset.fbtab; drawFacturas(); return; }
+    const fq = e.target.closest('[data-fquick]'); if (fq) { e.stopPropagation(); return facQuick(fq); }
+    const fr = e.target.closest('[data-fid]'); if (fr) return facturaDetail(fr.dataset.fid);
     const a = e.target.closest('[data-act]')?.dataset.act;
+    if (a === 'cfimport') return importFacturasPick();
     if (a === 'cadd') return pickBudgetForCobranza();
     if (a === 'cexport') return exportCobranza();
     const row = e.target.closest('[data-cbid]'); if (row) return cobDetail(row.dataset.cbid);
   });
-  drawCobranza();
+  cobView();
+}
+function cobView() {
+  $$('#cbView button').forEach(b => b.classList.toggle('on', b.dataset.cbview === FB.view));
+  $('#cbCuentas').hidden = FB.view !== 'cuentas'; $('#cbFact').hidden = FB.view !== 'facturas';
+  if (FB.view === 'facturas') drawFacturas(); else drawCobranza();
 }
 const COB_TABS = [
   { k: 'abiertas', l: 'Por cobrar', f: s => ['pendiente', 'parcial', 'vencido'].includes(s.estado) },
@@ -2718,6 +2773,7 @@ function cobDetail(bid) {
         <div class="field"><label>Fecha límite de pago</label><input class="input" type="date" data-cf="vence" value="${esc(s.c.vence || '')}"></div>
         <div class="field"><label>Facturación</label><select class="input" data-cf="factura"><option value="1" ${s.c.factura !== false ? 'selected' : ''}>Con factura</option><option value="0" ${s.c.factura === false ? 'selected' : ''}>Sin factura (cuenta aparte)</option></select></div>
       </div>
+      ${(() => { const fl = (Store.data.facturas || []).filter(f => f.presupuestoId === bid); return fl.length ? `<div class="fac-mini">${fl.map(f => `<span class="chip">${ICON.receipt.replace('width="20" height="20"', 'width="12" height="12"')} Factura ${esc(f.folio || f.uuid.slice(0, 8))} · $${AGIS_money(f.total)} · ${FAC_EST[f.estado].l}</span>`).join('')}</div>` : ''; })()}
       <div class="sec-h" style="margin-top:18px"><h2>Pagos y anticipos</h2><button type="button" class="btn sm primary" data-padd>${ICON.plus}Registrar pago</button></div>
       <div id="cdPagos">${pagosHTML()}</div>`,
     foot: `<button class="btn danger left" data-cdel>${ICON.trash}Quitar de Cobranza</button><button class="btn" data-copen>${ICON.open}Abrir presupuesto</button><button class="btn primary" data-x>Listo</button>`,
@@ -2754,7 +2810,7 @@ function pagoForm(bid, pid, onDone) {
       <div class="field"><label>Fecha <span class="req">*</span></label><input class="input" type="date" name="fecha" value="${esc(p.fecha)}"></div>
       <div class="field"><label>Monto <span class="req">*</span></label><div style="display:flex;gap:6px"><input class="input" type="number" min="0" step="0.01" inputmode="decimal" name="monto" value="${esc(p.monto)}" placeholder="0.00"><button type="button" class="btn sm" data-all title="Liquidar saldo">Saldo</button></div><small class="meta-line">Saldo antes de este pago: $${AGIS_money(saldoSin)}</small></div>
       <div class="field"><label>Tipo</label><select class="input" name="tipo">${Object.entries(TIPOS_PAGO).map(([k, l]) => `<option value="${k}" ${p.tipo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${FORMAS_PAGO.map(f => `<option ${p.forma === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${catList('formasPago').map(f => `<option ${p.forma === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}${p.forma && !catList('formasPago').includes(p.forma) ? `<option selected>${esc(p.forma)}</option>` : ''}</select></div>
       <div class="field"><label>Referencia / folio bancario</label><input class="input" name="ref" value="${esc(p.ref || '')}" maxlength="60"></div>
       <div class="field"><label>Nota</label><input class="input" name="nota" value="${esc(p.nota || '')}" maxlength="160"></div>
       ${c.metodo === 'PPD' ? `<label class="tq-check span2"><input type="checkbox" name="rep" ${p.rep ? 'checked' : ''}><span>Ya se emitió el <b>complemento de pago (REP)</b></span></label>` : ''}
@@ -2822,6 +2878,7 @@ function renderCorreo(stage) {
     if (e.target.closest('[data-mcompose]')) return composeMail({});
     if (e.target.closest('[data-msync]')) return syncMail(true);
     if (e.target.closest('[data-mmore]')) return loadMailList(true);
+    if (e.target.closest('[data-mprov]')) return proveedoresManager(() => refreshMail(true));
   });
   initMail();
 }
@@ -2833,6 +2890,7 @@ async function initMail() {
     $('#mGroups').innerHTML = ''; return;
   }
   await refreshMail();
+  mailApi('POST', '/sync').then(() => refreshMail(true)).catch(() => {});
   clearInterval(MS.timer);
   MS.timer = setInterval(() => { if (current !== 'correo') return clearInterval(MS.timer); refreshMail(true); }, 60e3);
 }
@@ -2863,10 +2921,11 @@ function mailBadge(n) {
 function drawMailGroups() {
   const el = $('#mGroups'); if (!el || !MS.groups) return;
   const g = MS.groups.groups;
-  const item = x => `<button class="mail-g ${MS.group === x.key ? 'on' : ''}" data-mgroup="${esc(x.key)}"><span class="mg-ico t-${x.type}">${x.type === 'cliente' ? ICON.user : x.type === 'dominio' ? ICON.building : x.type === 'sin' ? ICON.inbox : ICON.inbox}</span><span class="mg-l">${esc(x.label)}</span>${x.unread ? `<b class="mg-n">${x.unread}</b>` : `<small>${x.count}</small>`}</button>`;
+  const item = x => `<button class="mail-g ${MS.group === x.key ? 'on' : ''}" data-mgroup="${esc(x.key)}"><span class="mg-ico t-${x.type}">${x.type === 'cliente' ? ICON.user : x.type === 'proveedor' ? ICON.truck : x.type === 'dominio' ? ICON.building : ICON.inbox}</span><span class="mg-l">${esc(x.label)}</span>${x.unread ? `<b class="mg-n">${x.unread}</b>` : `<small>${x.count}</small>`}</button>`;
   const sec = (t, list) => list.length ? `<div class="mail-gt">${t}</div>${list.map(item).join('')}` : '';
   el.innerHTML = item({ key: 'all', label: 'Todos los correos', type: 'all', count: MS.groups.total, unread: MS.groups.unread })
     + sec('Clientes', g.filter(x => x.type === 'cliente'))
+    + `<div class="mail-gt mail-gt-act">Proveedores<button class="icon-btn" data-mprov title="Administrar proveedores">${ICON.edit}</button></div>${g.filter(x => x.type === 'proveedor').map(item).join('') || '<p class="mail-gempty">Asigna remitentes como proveedor desde un correo.</p>'}`
     + sec('Otros dominios', g.filter(x => x.type === 'dominio'))
     + sec('Sin asignar', g.filter(x => x.type === 'sin'));
 }
@@ -2893,12 +2952,23 @@ async function openMail(id) {
   const el = $('#mRead'); el.innerHTML = `<div class="empty" style="padding:60px">Cargando…</div>`;
   $('#mail').classList.add('reading');
   let m;
-  try { m = await mailApi('GET', '/msg/' + encodeURIComponent(id)); } catch (e) { el.innerHTML = `<div class="empty" style="padding:60px">${ICON.x}<b>No se pudo abrir</b>${esc(e.message)}</div>`; return; }
+  try { m = await mailApi('GET', '/msg/' + encodeURIComponent(id)); }
+  catch (e) {
+    if (/eliminó en el servidor/.test(e.message)) {
+      const it = $(`.mail-it[data-mid="${CSS.escape(id)}"]`); if (it) it.remove();
+      MS.items = MS.items.filter(x => x.id !== id); MS.sel = null;
+      el.innerHTML = `<div class="empty" style="padding:60px">${ICON.trash}<b>Correo eliminado</b>Se borró en el servidor y ya se quitó de la bandeja.</div>`;
+      $('#mail').classList.remove('reading'); refreshMail(true); return;
+    }
+    el.innerHTML = `<div class="empty" style="padding:60px">${ICON.x}<b>No se pudo abrir</b>${esc(e.message)}</div>`; return;
+  }
   const meta = MS.items.find(x => x.id === id) || {};
   if (meta && !meta.seen) { meta.seen = true; const it = $(`.mail-it[data-mid="${CSS.escape(id)}"]`); if (it) it.classList.remove('unread'); refreshMail(true); }
   const fmtA = l => (l || []).map(a => esc(a.name ? `${a.name} <${a.address}>` : a.address)).join(', ');
   const g = meta.group || {};
-  const assign = g.type && g.type !== 'cliente' && can('clientes') ? `<div class="mail-assign">${ICON.user}<span>Remitente sin cliente: <b>${esc(g.peer || '')}</b></span><select class="input" id="mAssign"><option value="">Asignar a cliente…</option>${[...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre)).map(c => `<option value="${esc(c.id)}">${esc(clientLabel(c))}</option>`).join('')}</select></div>` : '';
+  const assign = g.type && g.type !== 'cliente' && g.type !== 'proveedor' && g.peer ? `<div class="mail-assign">${ICON.user}<span>Remitente sin asignar: <b>${esc(g.peer || '')}</b></span>
+      ${can('clientes') ? `<select class="input" id="mAssign"><option value="">Asignar a cliente…</option>${[...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre)).map(c => `<option value="${esc(c.id)}">${esc(clientLabel(c))}</option>`).join('')}</select>` : ''}
+      <select class="input" id="mAssignP"><option value="">Asignar a proveedor…</option><option value="__new">+ Nuevo proveedor…</option>${(Store.data.proveedores || []).slice().sort((a, b) => a.nombre.localeCompare(b.nombre)).map(p => `<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')}</select></div>` : '';
   el.innerHTML = `
     <div class="mail-rh">
       <button class="icon-btn mail-back" data-mback title="Volver">${ICON.left}</button>
@@ -2922,6 +2992,26 @@ async function openMail(id) {
   };
   el.querySelector('[data-mfwd]').onclick = () => composeMail({ subject: 'Fwd: ' + (m.subject || ''), quoteHtml: quote() });
   el.querySelector('[data-mback]').onclick = () => $('#mail').classList.remove('reading');
+  const asp = el.querySelector('#mAssignP');
+  if (asp) asp.onchange = async () => {
+    const v = asp.value; if (!v) return;
+    const dom = (g.peer.split('@')[1] || '').toLowerCase(), generic = /^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|icloud|me|mac|prodigy|aol|proton(mail)?|gmx|zoho)\./.test(dom);
+    const key = generic ? g.peer : dom;
+    let pv;
+    if (v === '__new') {
+      const name = await promptDialog('Nuevo proveedor', 'Nombre del proveedor', g.label && g.type === 'dominio' ? g.label : (m.from[0] && m.from[0].name) || '');
+      if (!name) { asp.value = ''; return; }
+      pv = { id: uid(), nombre: name.trim(), emails: key, rfc: '', telefono: '', notas: '', creado: new Date().toISOString() };
+      Store.data.proveedores = [...(Store.data.proveedores || []), pv];
+    } else {
+      pv = (Store.data.proveedores || []).find(x => x.id === v); if (!pv) return;
+      const l = String(pv.emails || '').split(/[,;\s]+/).filter(Boolean);
+      if (!l.map(x => x.toLowerCase()).includes(key)) l.push(key); pv.emails = l.join(', ');
+    }
+    Store.save('proveedores');
+    toast(`${generic ? g.peer : 'Todo @' + dom} → proveedor ${pv.nombre}`); setTimeout(() => refreshMail(true), 400);
+    el.querySelector('.mail-assign').remove();
+  };
   const as = el.querySelector('#mAssign');
   if (as) as.onchange = () => {
     const c = Store.data.clientes.find(x => x.id === as.value); if (!c || !g.peer) return;
@@ -2933,6 +3023,37 @@ async function openMail(id) {
   };
 }
 const fileToB64 = f => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(f); });
+/* Proveedores: nombre + correos o dominios (para agrupar correos y como contraparte en Fiscal) */
+function proveedoresManager(onDone) {
+  const list = () => (Store.data.proveedores || []).slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
+  openModal({
+    title: 'Proveedores', size: 'wide',
+    body: `<p class="meta-line" style="margin-top:0">Los correos que lleguen de estas direcciones o dominios se agrupan en la carpeta del proveedor. Escribe un dominio completo (ej. <b>syscom.mx</b>) para incluir a toda la empresa.</p><div id="pvList"></div>
+      <button type="button" class="btn sm" data-pvadd>${ICON.plus}Agregar proveedor</button>`,
+    foot: `<button class="btn primary" data-x>Listo</button>`,
+    onClose: () => onDone && onDone(),
+    onMount(m) {
+      const draw = () => {
+        m.querySelector('#pvList').innerHTML = list().length ? `<div class="pv-rows">${list().map(p => `<div class="pv-row" data-pv="${esc(p.id)}">
+          <input class="input" data-k="nombre" value="${esc(p.nombre)}" placeholder="Nombre">
+          <input class="input" data-k="emails" value="${esc(p.emails || '')}" placeholder="correo@proveedor.com, proveedor.com">
+          <input class="input mono" data-k="rfc" value="${esc(p.rfc || '')}" placeholder="RFC (opcional)" maxlength="13">
+          <button type="button" class="icon-btn danger" data-pvdel="${esc(p.id)}" title="Eliminar">${ICON.trash}</button></div>`).join('')}</div>` : '<p class="meta-line">Aún no hay proveedores.</p>';
+      };
+      draw();
+      m.addEventListener('change', e => {
+        const row = e.target.closest('[data-pv]'), k = e.target.dataset.k; if (!row || !k) return;
+        const p = Store.data.proveedores.find(x => x.id === row.dataset.pv); if (!p) return;
+        p[k] = k === 'rfc' ? e.target.value.trim().toUpperCase() : e.target.value.trim(); Store.save('proveedores');
+      });
+      m.addEventListener('click', async e => {
+        if (e.target.closest('[data-pvadd]')) { Store.data.proveedores = [...(Store.data.proveedores || []), { id: uid(), nombre: 'Nuevo proveedor', emails: '', rfc: '', creado: new Date().toISOString() }]; Store.save('proveedores'); draw(); const ins = m.querySelectorAll('[data-k=nombre]'); const last = [...ins].find(x => x.value === 'Nuevo proveedor'); if (last) { last.focus(); last.select(); } return; }
+        const d = e.target.closest('[data-pvdel]');
+        if (d) { if (!await confirmDialog('Eliminar proveedor', 'Sus correos volverán a agruparse por dominio.')) return; Store.data.proveedores = Store.data.proveedores.filter(x => x.id !== d.dataset.pvdel); Store.save('proveedores'); draw(); }
+      });
+    }
+  });
+}
 /* Firma de correo por usuario (GIF animado / PNG / JPG + texto) */
 const fileToDataURL = f => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(f); });
 async function signatureEditor(username, displayName, onDone) {
@@ -3104,7 +3225,8 @@ function importReview(r) {
         <div class="field span2"><label>Nombre del proyecto <span class="req">*</span></label><input class="input ${r.proyecto.nombre ? '' : 'imp-miss'}" data-pf="nombre" value="${esc(r.proyecto.nombre)}" placeholder="Falta · escribe el nombre"></div>
         <div class="field"><label>Inicio</label><input class="input" type="date" data-pf="fechaInicio" value="${esc(d.fecha || todayISO())}"></div>
         <div class="field"><label>Estatus</label><select class="input" data-pf="estatus">${PEST.map(s => `<option value="${s.k}" ${s.k === (r.tipo === 'presupuesto' ? 'prospecto' : 'por_iniciar') ? 'selected' : ''}>${s.l}</option>`).join('')}</select></div>
-        <div class="field span2"><label>Dirección / lugar</label><input class="input ${r.proyecto.direccion ? '' : 'imp-miss'}" data-pf="direccion" value="${esc(r.proyecto.direccion)}" placeholder="Falta · llenar después"></div>
+        <div class="field span2"><label>Descripción del proyecto</label><input class="input ${r.proyecto.direccion ? '' : 'imp-miss'}" data-pf="direccion" value="${esc(r.proyecto.direccion)}" placeholder="Falta · llenar después"></div>
+        <div class="field"><label>Cantidad / piezas</label><input class="input" type="number" min="0" data-pf="piezas" value="${esc(r.conceptos.length === 1 && r.conceptos[0].cantidad ? r.conceptos[0].cantidad : '')}" placeholder="Opcional"></div>
       </div>
       <div class="imp-sum">
         <div><small>Subtotal</small><b>${money(d.subtotal)}</b></div><div><small>IVA</small><b>${money(d.iva)}</b></div>
@@ -3147,7 +3269,7 @@ function importReview(r) {
         }
         cli.modificado = now;
         // proyecto
-        const faltP = [!pv('direccion') && 'Dirección / lugar', d.total == null && 'Monto total', !d.fecha && 'Fecha del documento'].filter(Boolean);
+        const faltP = [!pv('direccion') && 'Descripción del proyecto', d.total == null && 'Monto total', !d.fecha && 'Fecha del documento'].filter(Boolean);
         const lines = [`Importado de ${r.tipo}${d.folio ? ' ' + d.folio : ''}${d.uuid ? ' · UUID ' + d.uuid : ''} · ${r.archivo}`];
         if (d.total != null) lines.push(`Subtotal ${money(d.subtotal)} · IVA ${money(d.iva)}${d.retIsr ? ' · Ret. ISR ' + money(d.retIsr) : ''} · Total ${money(d.total)}${d.metodoPago ? ' · ' + d.metodoPago : ''}`);
         if (r.conceptos.length) lines.push('Conceptos:', ...r.conceptos.map(k => `• ${k.descripcion}${k.cantidad ? ` (${k.cantidad} ${k.unidad || ''})` : ''}${k.importe != null ? ' — $' + AGIS_money(k.importe) : ''}`));
@@ -3155,8 +3277,8 @@ function importReview(r) {
         const target = {
           id: uid(), created: now, createdBy: ME.username, avanceManual: null, resueltas: [], reprogramaciones: [], presupuestoIds: [], sistemas: [],
           nombre: nombreP, clienteId: cli.id, clienteNombre: cli.nombre, codigo: nextProjectCode(), obra: '', estatus: pv('estatus') || 'por_iniciar',
-          direccion: pv('direccion'), fechaInicio: pv('fechaInicio') || todayISO(), fechaFin: '', fechaFinBase: '', responsable: userName(), equipo: [], origen: '',
-          notas: lines.join('\n'), pendientes: faltP.filter(x => x.startsWith('Dirección')), importe: d.total, moneda: d.moneda || 'MXN',
+          direccion: pv('direccion'), piezas: Math.max(0, parseInt(pv('piezas'), 10) || 0), fechaInicio: pv('fechaInicio') || todayISO(), fechaFin: '', fechaFinBase: '', responsable: userName(), equipo: [], origen: '',
+          notas: lines.join('\n'), pendientes: faltP.filter(x => x.startsWith('Descripción')), importe: d.total, moneda: d.moneda || 'MXN',
           documentos: [{ id: r.docId, nombre: r.archivo, tipo: r.tipo, folio: d.folio || '', uuid: d.uuid || '', total: d.total, moneda: d.moneda || 'MXN', fecha: d.fecha || '', at: now, by: ME.username }]
         };
         Store.data.proyectos.unshift(target);
@@ -3201,7 +3323,7 @@ function cobranzaMovs() {
   });
   return out;
 }
-const allMovs = () => [...(Store.data.movimientos || []).map(m => ({ ...m })), ...(FS.cob ? cobranzaMovs() : [])].filter(m => (m.moneda || 'MXN') === 'MXN');
+const allMovs = () => [...(Store.data.movimientos || []).map(m => ({ ...m })), ...(FS.cob ? [...cobranzaMovs(), ...facturaMovs()] : [])].filter(m => (m.moneda || 'MXN') === 'MXN');
 const inPeriod = (m, per = FS.per) => per === 'todo' ? true : per === 'anio' ? String(m.fecha).startsWith(FS.anio) : String(m.fecha).startsWith(FS.mes);
 function fMovs(opts = {}) {
   const q = normKey(FS.q);
@@ -3219,14 +3341,14 @@ function renderFiscal(stage) {
   <section class="panel" id="fiscal">
     <div class="view-head">
       <div><h1>Fiscal</h1><p>Entradas y salidas del negocio, con y sin factura. Los impuestos son un estimado informativo.</p></div>
-      <div class="actions">${isAdmin() ? `<button class="btn ghost" data-act="fimport">${ICON.download}Importar TRIDI Finanzas</button>` : ''}<button class="btn" data-act="fexport">${ICON.download}CSV</button><button class="btn" data-act="fegr">${ICON.plus}Egreso</button><button class="btn primary" data-act="fing">${ICON.plus}Ingreso</button></div>
+      <div class="actions">${isAdmin() ? `<button class="btn ghost" data-act="fimport">${ICON.download}Importar TRIDI Finanzas</button>` : ''}<button class="btn" data-act="fpdf">${ICON.pdf}Reporte PDF</button><button class="btn" data-act="fexport">${ICON.download}CSV</button><button class="btn" data-act="fegr">${ICON.plus}Egreso</button><button class="btn primary" data-act="fing">${ICON.plus}Ingreso</button></div>
     </div>
     <div class="fis-filters">
       <div class="seg" id="fPer"><button data-per="mes">Mes</button><button data-per="anio">Año</button><button data-per="todo">Todo</button></div>
       <input class="input" type="month" id="fMes" value="${FS.mes}">
       <select class="input" id="fAnio">${years.map(y => `<option ${y === FS.anio ? 'selected' : ''}>${y}</option>`).join('')}</select>
       <div class="seg fis-fac" id="fFac"><button data-fac="todo">Todo</button><button data-fac="si">Con factura</button><button data-fac="no">Sin factura</button><button data-fac="nc">Sin clasificar</button></div>
-      <label class="fis-cob"><input type="checkbox" id="fCob" ${FS.cob ? 'checked' : ''}> Incluir pagos de Cobranza</label>
+      <label class="fis-cob"><input type="checkbox" id="fCob" ${FS.cob ? 'checked' : ''}> Incluir Cobranza y facturas</label>
     </div>
     <div class="kpis fis-kpis" id="fKpis"></div>
     <div class="fis-grid">
@@ -3264,11 +3386,13 @@ function renderFiscal(stage) {
     if (a === 'fing') return movForm(null, 'ingreso');
     if (a === 'fegr') return movForm(null, 'egreso');
     if (a === 'fexport') return exportFiscal();
+    if (a === 'fpdf') return fiscalReportDialog();
     if (a === 'fimport') return importFinanzas();
     if (a === 'fcats') return popMenu(e.target.closest('[data-act]'), [
       { label: 'Categorías de ingreso', icon: 'edit', run: () => catalogManager('catIngreso', 'Categorías de ingreso', redraw) },
       { label: 'Categorías de egreso', icon: 'edit', run: () => catalogManager('catEgreso', 'Categorías de egreso', redraw) },
-      { label: 'Cuentas', icon: 'wallet', run: () => catalogManager('cuentas', 'Cuentas', () => renderFiscal($('#stage'))) }
+      { label: 'Cuentas', icon: 'wallet', run: () => catalogManager('cuentas', 'Cuentas', () => renderFiscal($('#stage'))) },
+      { label: 'Formas de pago', icon: 'cash', run: () => catalogManager('formasPago', 'Formas de pago', redraw) }
     ]);
     const fc = e.target.closest('[data-mfac]'); if (fc) { e.stopPropagation(); return cycleFac(fc.dataset.mfac); }
     const mm = e.target.closest('[data-mmore]'); if (mm) { e.stopPropagation(); return movMenu(mm); }
@@ -3354,7 +3478,7 @@ function drawFisTable() {
     <tr data-mov="${esc(m.id)}" class="fis-row">
       <td>${fmtDate(m.fecha)}</td>
       <td><span class="ftipo ${m.tipo}">${m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}</span></td>
-      <td><div class="cname"><b>${esc(m.descripcion || '—')}</b><small>${esc(m.contraparte || '')}${m.auto ? ' · <span class="chip">Cobranza</span>' : ''}${m.folio && !m.auto ? ' · ' + esc(m.folio) : ''}</small></div></td>
+      <td><div class="cname"><b>${esc(m.descripcion || '—')}</b><small>${esc(m.contraparte || '')}${m.auto ? ` · <span class="chip">${m.autoFac ? 'Factura' : 'Cobranza'}</span>` : ''}${m.folio && !m.auto ? ' · ' + esc(m.folio) : ''}</small></div></td>
       <td>${esc(m.categoria || '—')}</td><td>${facChip(m)}</td><td><small>${esc(m.cuenta || '—')}</small></td>
       <td class="r money">${k$(m.subtotal != null ? m.subtotal : m.total)}</td><td class="r money">${m.iva ? k$(m.iva) : '—'}</td>
       <td class="r money"><b class="${m.tipo === 'ingreso' ? 'pos' : 'neg'}">${m.tipo === 'egreso' ? '-' : ''}${k$(m.total)}</b></td>
@@ -3381,7 +3505,10 @@ function movMenu(btn) {
 }
 function movForm(id, tipo, copy) {
   const ex = id ? movById(id) : null;
-  if (id && !ex) { const auto = cobranzaMovs().find(x => x.id === id); if (auto) { toast('Este ingreso viene de Cobranza; edítalo allá'); go('cobranza'); setTimeout(() => cobDetail(auto.bid), 80); } return; }
+  if (id && !ex) {
+    if (id.startsWith('fac:')) { const fid = id.slice(4); toast('Este movimiento viene de una factura; edítala en Cobranza'); FB.view = 'facturas'; go('cobranza'); setTimeout(() => facturaDetail(fid), 80); return; }
+    const auto = cobranzaMovs().find(x => x.id === id); if (auto) { toast('Este ingreso viene de Cobranza; edítalo allá'); go('cobranza'); setTimeout(() => cobDetail(auto.bid), 80); } return;
+  }
   const m = ex ? { ...ex } : { tipo: tipo || 'ingreso', fecha: todayISO(), categoria: '', descripcion: '', contraparte: '', clienteId: '', proyectoId: '', total: '', facturado: true, conIva: true, conRet: false, subtotal: '', iva: '', retIsr: '', retIva: 0, cuenta: catList('cuentas')[0], forma: 'Transferencia', folio: '', notas: '', ...(copy || {}) };
   if (m.conIva === undefined) m.conIva = !!(+m.iva);
   if (m.conRet === undefined) m.conRet = !!(+m.retIsr);
@@ -3413,7 +3540,7 @@ function movForm(id, tipo, copy) {
         </div>
         <small class="meta-line">Se calculan solos desde el total; puedes ajustarlos a lo que diga la factura.</small>
       </div>
-      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${FORMAS_PAGO.map(f => `<option ${m.forma === f ? 'selected' : ''}>${f}</option>`).join('')}</select></div>
+      <div class="field"><label>Forma de pago</label><select class="input" name="forma">${catList('formasPago').map(f => `<option ${m.forma === f ? 'selected' : ''}>${esc(f)}</option>`).join('')}${m.forma && !catList('formasPago').includes(m.forma) ? `<option selected>${esc(m.forma)}</option>` : ''}</select></div>
       <div class="field"><label>Folio / UUID factura</label><input class="input mono" name="folio" value="${esc(m.folio || '')}"></div>
       <div class="field span2"><label>Notas</label><textarea class="input" name="notas" rows="2">${esc(m.notas || '')}</textarea></div>
     </div>`,
@@ -3461,6 +3588,62 @@ function movForm(id, tipo, copy) {
     }
   });
 }
+/* ---- Reporte PDF ---- */
+function fiscalReportDialog() {
+  const cm = todayISO().slice(0, 7), pm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return localISO(d).slice(0, 7); })(), cy = todayISO().slice(0, 4);
+  const curL = FS.per === 'mes' ? 'Mes en pantalla (' + MES[+FS.mes.slice(5) - 1] + ' ' + FS.mes.slice(0, 4) + ')' : FS.per === 'anio' ? 'Año en pantalla (' + FS.anio + ')' : 'Todo (como en pantalla)';
+  openModal({
+    title: 'Reporte fiscal en PDF', size: 'narrow',
+    body: `<div class="field"><label>Periodo</label><select class="input" id="rpPer">
+        <option value="cur">${esc(curL)}</option><option value="m:${cm}">Mes actual</option><option value="m:${pm}">Mes anterior</option>
+        <option value="y:${cy}">Año ${cy}</option><option value="y:${+cy - 1}">Año ${+cy - 1}</option><option value="all">Global (todo el historial)</option><option value="mpick">Otro mes…</option></select></div>
+      <div class="field" id="rpMesF" hidden><label>Mes</label><input class="input" type="month" id="rpMes" value="${pm}"></div>
+      <div class="field"><label>Facturación</label><select class="input" id="rpFac"><option value="todo">Todo (con y sin factura)</option><option value="si">Solo con factura</option><option value="no">Solo sin factura</option><option value="nc">Solo sin clasificar</option></select></div>
+      <label class="tq-check"><input type="checkbox" id="rpMov" checked><span>Incluir la lista de movimientos</span></label>`,
+    foot: `<button class="btn" data-x>Cancelar</button><button class="btn primary" data-go>${ICON.pdf}Generar PDF</button>`,
+    onMount(m, close) {
+      m.querySelector('#rpFac').value = FS.fac;
+      m.querySelector('#rpPer').onchange = e => { m.querySelector('#rpMesF').hidden = e.target.value !== 'mpick'; };
+      m.querySelector('[data-go]').onclick = async () => {
+        const v = m.querySelector('#rpPer').value, btn = m.querySelector('[data-go]');
+        const per = v === 'cur' ? { per: FS.per, mes: FS.mes, anio: FS.anio } : v === 'all' ? { per: 'todo' } : v === 'mpick' ? { per: 'mes', mes: m.querySelector('#rpMes').value || pm } : v.startsWith('m:') ? { per: 'mes', mes: v.slice(2) } : { per: 'anio', anio: v.slice(2) };
+        btn.disabled = true; btn.lastChild.textContent = 'Generando…';
+        try { await fiscalPDF({ ...per, fac: m.querySelector('#rpFac').value, movs: m.querySelector('#rpMov').checked }); close(); }
+        catch (e) { console.error(e); toast(e.message || 'No se pudo generar el PDF', true); btn.disabled = false; btn.lastChild.textContent = 'Generar PDF'; }
+      };
+    }
+  });
+}
+async function fiscalPDF(o) {
+  if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('No se pudo cargar el generador de PDF (revisa la conexión)');
+  const saved = { ...FS };
+  Object.assign(FS, { per: o.per, mes: o.mes || FS.mes, anio: o.anio || (o.mes ? o.mes.slice(0, 4) : FS.anio), fac: o.fac, tipo: 'todo', cat: '', cuenta: '', q: '' });
+  try {
+    const L = fMovs(), I = L.filter(m => m.tipo === 'ingreso'), E = L.filter(m => m.tipo === 'egreso');
+    const ti = sumBy(I, m => m.total), te = sumBy(E, m => m.total), ut = r2(ti - te);
+    const sp = l => { const a = sumBy(l.filter(m => m.facturado === true), m => m.total), b = sumBy(l.filter(m => m.facturado === false), m => m.total), c = sumBy(l.filter(m => m.facturado == null), m => m.total); return `Con factura ${k$(a)} · sin factura ${k$(b)}${c ? ' · sin clasificar ' + k$(c) : ''}`; };
+    const periodo = FS.per === 'mes' ? `${MES_L[+FS.mes.slice(5) - 1]} ${FS.mes.slice(0, 4)}` : FS.per === 'anio' ? `Año ${FS.anio}` : 'Global (todo el historial)';
+    const y = FS.per === 'mes' ? FS.mes.slice(0, 4) : FS.per === 'anio' ? FS.anio : todayISO().slice(0, 4);
+    const base = allMovs().filter(m => String(m.fecha).startsWith(y) && (FS.fac === 'todo' || facKey(m.facturado) === FS.fac));
+    const mensual = Array.from({ length: 12 }, (_, i) => { const mk = `${y}-${pad(i + 1)}`, l = base.filter(m => String(m.fecha).startsWith(mk)); const g = (t, f) => sumBy(l.filter(m => m.tipo === t && (f ? m.facturado === true : m.facturado !== true)), m => m.total); return { l: MES[i], sel: FS.per === 'mes' && mk === FS.mes, iF: g('ingreso', 1), iN: g('ingreso', 0), eF: g('egreso', 1), eN: g('egreso', 0) }; });
+    const months = FS.per === 'mes' ? [FS.mes] : FS.per === 'anio' ? Array.from({ length: 12 }, (_, i) => `${FS.anio}-${pad(i + 1)}`) : [...new Set(allMovs().map(m => String(m.fecha).slice(0, 7)))];
+    const t = months.map(taxMonth).reduce((a, x) => { Object.keys(x).forEach(k => { a[k] = r2((a[k] || 0) + x[k]); }); return a; }, {});
+    t.tasaTxt = FS.per === 'mes' ? resicoTasa(t.baseF || 0).toFixed(2) + '%' : '1% – 2.5% (por mes)';
+    const cats = tipo => { const map = new Map(); L.filter(m => m.tipo === tipo).forEach(m => { const k = m.categoria || 'Sin categoría', x = map.get(k) || { k, f: 0, n: 0 }; x[m.facturado === true ? 'f' : 'n'] += +m.total || 0; map.set(k, x); }); return [...map.values()].sort((a, b) => (b.f + b.n) - (a.f + a.n)); };
+    const R0 = {
+      periodo, hoy: todayISO(), usuario: userName(), anioGrafica: y,
+      filtroFac: { todo: 'Con y sin factura', si: 'Solo con factura', no: 'Solo sin factura', nc: 'Solo sin clasificar' }[FS.fac],
+      incluye: FS.cob ? 'Capturas, Cobranza y facturas' : 'Solo capturas manuales',
+      kpi: { ti, te, ut, si: sp(I), se: sp(E), margen: ti ? `Margen ${(ut / ti * 100).toFixed(1)}% · ${L.length} movimientos` : `${L.length} movimientos` },
+      mensual, tax: { ivaT: 0, ivaR: 0, ivaA: 0, iva: 0, baseF: 0, baseN: 0, ret: 0, isrPagarF: 0, isrPagarA: 0, ...t }, catI: cats('ingreso'), catE: cats('egreso'),
+      movs: o.movs ? L.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha))).map(m => ({ ...m, fac: FAC_L[m.facturado === true ? 'true' : m.facturado === false ? 'false' : 'null'], subtotal: m.subtotal != null ? m.subtotal : m.total })) : []
+    };
+    await loadPdfFonts();
+    const doc = buildFiscalPDF(R0, { jsPDF: window.jspdf.jsPDF, logos: window.AGIS_LOGOS, fonts: window.AGIS_PDF_FONTS });
+    const name = `TRIDI MX Reporte fiscal ${periodo}`.replace(/[^\w\-. ]+/g, '_') + '.pdf';
+    doc.save(name); toast('PDF generado: ' + name);
+  } finally { Object.assign(FS, saved); }
+}
 function exportFiscal() {
   const L = fMovs().sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
   const rows = [['Fecha', 'Tipo', 'Categoría', 'Concepto', 'Cliente/Proveedor', 'Factura', 'Cuenta', 'Forma de pago', 'Subtotal', 'IVA', 'Ret. ISR', 'Ret. IVA', 'Total', 'Folio/UUID', 'Origen', 'Notas']];
@@ -3500,6 +3683,219 @@ function importFinanzas() {
       };
     }
   });
+}
+
+/* ================= FACTURAS (Cobranza) ================= */
+/* { id, uuid, folio, fecha, tipo: emitida|recibida, nombre, rfc, clienteId, proveedorId, proyectoId, presupuestoId,
+     subtotal, iva, retIsr, retIva, total, moneda, metodo, docs:[{id,nombre}], estado: pendiente|pagada|cancelada, fechaPago, formaPago, notas } */
+const FAC_EST = { pendiente: { l: 'Pendiente de cobro', lr: 'Por pagar', c: '#b45309', bg: '#fff4e5' }, pagada: { l: 'Liquidada', lr: 'Pagada', c: '#15803d', bg: '#ecfdf3' }, cancelada: { l: 'Cancelada', lr: 'Cancelada', c: '#9aa1ad', bg: '#f5f6f8' } };
+const FB = { view: 'cuentas', tab: 'pendientes', q: '' };
+const facLinked = f => !!(f.presupuestoId || f.proyectoId || f.clienteId || f.proveedorId);
+const facPill = f => { const e = FAC_EST[f.estado] || FAC_EST.pendiente; return `<span class="cob-pill" style="--cc:${e.c};--cb:${e.bg}">${f.tipo === 'recibida' ? e.lr : e.l}</span>`; };
+const normFolio = s => String(s || '').toUpperCase().replace(/[-_]?REV\.?\s?\d+$/, '').replace(/\s/g, '');
+/* Busca a qué presupuesto/proyecto/cliente pertenece una factura importada */
+function facAutoLink(r) {
+  const out = { presupuestoId: '', proyectoId: '', clienteId: '', proveedorId: '', por: '' };
+  const refs = (r.refs || []).map(x => String(x).toUpperCase());
+  const bud = Store.data.presupuestos.find(b => b.folio && refs.some(x => normFolio(x) === normFolio(b.folio)));
+  if (bud) { out.presupuestoId = bud.id; out.proyectoId = bud.proyectoId || ''; out.clienteId = bud.clienteId || ''; out.por = 'folio del presupuesto'; }
+  const pj = !out.proyectoId && Store.data.proyectos.find(p => p.codigo && refs.includes(String(p.codigo).toUpperCase()));
+  if (pj) { out.proyectoId = pj.id; out.clienteId = out.clienteId || pj.clienteId || ''; out.por = out.por || 'código de proyecto'; }
+  const rfc = (r.cliente.rfc || '').toUpperCase();
+  if (!out.clienteId && rfc && !RFC_GENERICOS.includes(rfc)) { const c = Store.data.clientes.find(x => (x.rfc || '').toUpperCase() === rfc); if (c) { out.clienteId = c.id; out.por = out.por || 'RFC del cliente'; } }
+  if (rfc) { const pv = (Store.data.proveedores || []).find(x => (x.rfc || '').toUpperCase() === rfc); if (pv) out.proveedorId = pv.id; }
+  // sin identificador: mismo cliente y mismo total que un presupuesto
+  if (!out.presupuestoId && out.clienteId && r.doc.total != null) {
+    const b = Store.data.presupuestos.find(x => x.clienteId === out.clienteId && Math.abs((+x.total || 0) - r.doc.total) < 0.5);
+    if (b) { out.presupuestoId = b.id; out.proyectoId = out.proyectoId || b.proyectoId || ''; out.por = 'cliente y total'; }
+  }
+  return out;
+}
+async function analyzeFile(f) {
+  const r = await fetch('/api/import/doc', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: f.name, data: await fileToB64(f) }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 401) { sessionExpired(); throw new Error('Sesión expirada'); }
+  if (!r.ok) throw new Error(`${f.name}: ${d.error || 'no se pudo leer'}`);
+  return d;
+}
+function importFacturasPick() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.multiple = true; inp.accept = '.pdf,.xml,application/pdf,text/xml,application/xml';
+  inp.onchange = async () => {
+    const files = [...inp.files].filter(f => f.size <= 10 * 1048576); if (!files.length) return;
+    toast(`Leyendo ${files.length} archivo${files.length > 1 ? 's' : ''}…`);
+    const res = [];
+    for (const f of files) { try { res.push(await analyzeFile(f)); } catch (e) { toast(e.message, true); } }
+    // XML + PDF de la misma factura se juntan por UUID (o folio + total)
+    const groups = [];
+    res.forEach(r => {
+      const k = r.doc.uuid || `${r.doc.folio}|${r.doc.total}`;
+      const g = groups.find(x => x.k === k && k !== '|null');
+      if (g) { if (r.fuente === 'xml') { r.docs = [...g.r.docs, { id: r.docId, nombre: r.archivo }]; g.r = r; } else g.r.docs.push({ id: r.docId, nombre: r.archivo }); }
+      else { r.docs = [{ id: r.docId, nombre: r.archivo }]; groups.push({ k, r }); }
+    });
+    const queue = groups.map(g => g.r);
+    const next = () => { const r = queue.shift(); if (r) facturaReview(r, next); else { FB.view = 'facturas'; if (current === 'cobranza') renderCobranza($('#stage')); } };
+    next();
+  };
+  inp.click();
+}
+function facLinkFields(f) {
+  const clientes = [...Store.data.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const provs = (Store.data.proveedores || []).slice().sort((a, b) => a.nombre.localeCompare(b.nombre));
+  return `<div class="grid2 fac-link">
+    <div class="field" data-for="emitida"><label>Cliente</label><select class="input" data-lf="clienteId"><option value="">Por ligar</option>${clientes.map(c => `<option value="${esc(c.id)}" ${f.clienteId === c.id ? 'selected' : ''}>${esc(clientLabel(c))}</option>`).join('')}</select></div>
+    <div class="field" data-for="recibida"><label>Proveedor</label><select class="input" data-lf="proveedorId"><option value="">Por ligar</option>${provs.map(p => `<option value="${esc(p.id)}" ${f.proveedorId === p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></div>
+    <div class="field"><label>Proyecto</label><select class="input" data-lf="proyectoId"><option value="">Por ligar</option>${Store.data.proyectos.map(p => `<option value="${esc(p.id)}" ${f.proyectoId === p.id ? 'selected' : ''}>${esc(p.codigo)} · ${esc(p.nombre)}</option>`).join('')}</select></div>
+    <div class="field" data-for="emitida"><label>Presupuesto</label><select class="input" data-lf="presupuestoId"><option value="">Por ligar</option>${Store.data.presupuestos.map(b => `<option value="${esc(b.id)}" ${f.presupuestoId === b.id ? 'selected' : ''}>${esc(b.folio || 'Sin folio')} · ${esc(b.clienteNombre || '')} · $${AGIS_money(b.total)}</option>`).join('')}</select></div>
+  </div>`;
+}
+function bindLinkFields(m, f) {
+  m.addEventListener('change', e => {
+    const k = e.target.dataset.lf; if (!k) return;
+    f[k] = e.target.value;
+    if (k === 'presupuestoId' && f.presupuestoId) { const b = Store.data.presupuestos.find(x => x.id === f.presupuestoId); if (b) { if (b.clienteId) { f.clienteId = b.clienteId; m.querySelector('[data-lf=clienteId]').value = b.clienteId; } if (b.proyectoId) { f.proyectoId = b.proyectoId; m.querySelector('[data-lf=proyectoId]').value = b.proyectoId; } } }
+    if (k === 'proyectoId' && f.proyectoId && !f.clienteId) { const p = Store.data.proyectos.find(x => x.id === f.proyectoId); if (p && p.clienteId) { f.clienteId = p.clienteId; m.querySelector('[data-lf=clienteId]').value = p.clienteId; } }
+  });
+}
+function facturaReview(r, onDone) {
+  const d = r.doc, c = r.cliente;
+  const dup = Store.data.facturas.find(x => (d.uuid && x.uuid === d.uuid));
+  if (dup) { toast(`La factura ${d.folio || d.uuid.slice(0, 8)} ya estaba registrada`, true); return onDone && onDone(); }
+  const auto = facAutoLink(r);
+  const recibida = r.tipo === 'factura recibida' || (!!auto.proveedorId && !auto.clienteId);
+  const f = { id: uid(), uuid: d.uuid || '', folio: d.folio || '', fecha: d.fecha || todayISO(), tipo: recibida ? 'recibida' : 'emitida', nombre: c.razonSocial || c.nombre || '', rfc: c.rfc || '',
+    clienteId: auto.clienteId, proveedorId: auto.proveedorId, proyectoId: auto.proyectoId, presupuestoId: auto.presupuestoId,
+    subtotal: d.subtotal, iva: d.iva || 0, retIsr: d.retIsr || 0, retIva: 0, total: d.total, moneda: d.moneda || 'MXN', metodo: d.metodoPago || '', docs: r.docs || [{ id: r.docId, nombre: r.archivo }],
+    estado: 'pendiente', fechaPago: '', formaPago: 'Transferencia', notas: '', conceptos: (r.conceptos || []).slice(0, 15).map(k => k.descripcion) };
+  const st = f.presupuestoId && cobState(f.presupuestoId);
+  if (st && st.estado === 'pagado') { f.estado = 'pagada'; f.fechaPago = ((st.c.pagos || []).slice(-1)[0] || {}).fecha || f.fecha; }
+  const money = n => n == null ? '—' : '$' + AGIS_money(n) + ' ' + f.moneda;
+  openModal({
+    title: 'Importar factura', size: 'wide',
+    body: `<div class="imp-head">${ICON.receipt}<div><b>${esc(f.folio ? 'Factura ' + f.folio : 'Factura')}${f.uuid ? ' · UUID ' + esc(f.uuid.slice(0, 8)) + '…' : ''}</b><small>${esc(f.nombre || 'Sin nombre')}${f.rfc ? ' · ' + esc(f.rfc) : ''} · ${fmtDate(f.fecha)} · ${f.docs.map(x => esc(x.nombre)).join(' + ')}</small></div><b class="imp-tot">${money(f.total)}</b></div>
+      ${r.fuente !== 'xml' ? '<p class="imp-warn">' + ICON.lock + 'Leída desde PDF: revisa los importes. Si tienes el XML, súbelo junto con el PDF para datos exactos.</p>' : ''}
+      <div class="imp-sum"><div><small>Subtotal</small><b>${money(f.subtotal)}</b></div><div><small>IVA</small><b>${money(f.iva)}</b></div><div><small>Ret. ISR</small><b>${f.retIsr ? money(f.retIsr) : '—'}</b></div><div><small>Total</small><b>${money(f.total)}</b></div><div><small>Método</small><b>${esc(f.metodo || '—')}</b></div></div>
+      <div class="seg" id="fTipoSeg"><button type="button" data-ft="emitida">Emitida por TRIDI (ingreso)</button><button type="button" data-ft="recibida">Recibida de proveedor (egreso)</button></div>
+      <div class="sec-h" style="margin-top:14px"><h2>Liga</h2>${auto.por ? `<span class="imp-ok">✓ Ligada por ${esc(auto.por)}</span>` : '<span class="chip warn">No se encontró identificador: queda por ligar</span>'}</div>
+      ${facLinkFields(f)}
+      <div class="sec-h" style="margin-top:6px"><h2>Estado de cobro</h2></div>
+      <div class="grid3">
+        <div class="field"><label>Estado</label><select class="input" id="fEst"><option value="pendiente">Pendiente</option><option value="pagada" ${f.estado === 'pagada' ? 'selected' : ''}>Liquidada</option><option value="cancelada">Cancelada</option></select></div>
+        <div class="field"><label>Fecha de pago</label><input class="input" type="date" id="fFP" value="${esc(f.fechaPago)}"></div>
+        <div class="field"><label>Forma de pago</label><select class="input" id="fFoP">${catList('formasPago').map(x => `<option ${f.formaPago === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      </div>
+      ${st ? `<p class="meta-line">El presupuesto ligado está en Cobranza (${COB_EST[st.estado].l}); sus pagos ya cuentan en Fiscal, así que esta factura no se suma dos veces.</p>` : ''}`,
+    foot: `<button class="btn" data-x>Omitir</button><button class="btn primary" data-go>${ICON.save}Guardar factura</button>`,
+    onClose: () => setTimeout(() => onDone && onDone(), 220),
+    onMount(m, close) {
+      const ui = () => { $$('#fTipoSeg button', m).forEach(b => b.classList.toggle('on', b.dataset.ft === f.tipo)); $$('[data-for]', m).forEach(x => { x.style.display = x.dataset.for !== f.tipo ? 'none' : ''; }); m.querySelector('#fFP').closest('.field').style.opacity = m.querySelector('#fEst').value === 'pagada' ? 1 : .45; };
+      ui(); bindLinkFields(m, f);
+      m.querySelector('#fTipoSeg').onclick = e => { const b = e.target.closest('[data-ft]'); if (b) { f.tipo = b.dataset.ft; ui(); } };
+      m.querySelector('#fEst').onchange = e => { if (e.target.value === 'pagada' && !m.querySelector('#fFP').value) m.querySelector('#fFP').value = todayISO(); ui(); };
+      m.querySelector('[data-go]').onclick = () => {
+        f.estado = m.querySelector('#fEst').value; f.fechaPago = f.estado === 'pagada' ? (m.querySelector('#fFP').value || todayISO()) : ''; f.formaPago = m.querySelector('#fFoP').value;
+        if (f.tipo === 'recibida') { f.clienteId = ''; f.presupuestoId = ''; } else f.proveedorId = '';
+        f.creado = new Date().toISOString(); f.by = ME.username;
+        Store.data.facturas.unshift(f); Store.save('facturas');
+        toast(`Factura ${f.folio || ''} guardada${facLinked(f) ? '' : ' · queda por ligar'}`); close();
+      };
+    }
+  });
+}
+function facturaDetail(id) {
+  const f = Store.data.facturas.find(x => x.id === id); if (!f) return;
+  const ed = { ...f };
+  const proj = f.proyectoId && projById(f.proyectoId), bud = f.presupuestoId && Store.data.presupuestos.find(b => b.id === f.presupuestoId);
+  openModal({
+    title: `Factura ${f.folio || ''}`, size: 'wide',
+    body: `<div class="imp-head">${ICON.receipt}<div><b>${esc(f.nombre || '—')}${f.rfc ? ' · ' + esc(f.rfc) : ''}</b><small>${f.tipo === 'recibida' ? 'Recibida de proveedor' : 'Emitida por TRIDI'} · ${fmtDate(f.fecha)}${f.uuid ? ' · UUID ' + esc(f.uuid) : ''}${f.metodo ? ' · ' + esc(f.metodo) : ''}</small></div><b class="imp-tot">$${AGIS_money(f.total)} ${esc(f.moneda)}</b></div>
+      <div class="imp-sum"><div><small>Subtotal</small><b>$${AGIS_money(f.subtotal)}</b></div><div><small>IVA</small><b>$${AGIS_money(f.iva)}</b></div><div><small>Ret. ISR</small><b>${f.retIsr ? '$' + AGIS_money(f.retIsr) : '—'}</b></div><div><small>Estado</small>${facPill(f)}</div></div>
+      ${(f.conceptos || []).length ? `<div class="imp-conc"><small>Conceptos</small>${f.conceptos.map(k => `<div><span>${esc(k)}</span></div>`).join('')}</div>` : ''}
+      <div class="sec-h" style="margin-top:14px"><h2>Liga</h2>${facLinked(f) ? '' : '<span class="chip warn">Por ligar</span>'}</div>
+      ${facLinkFields(ed)}
+      <div class="sec-h"><h2>Estado de cobro</h2></div>
+      <div class="grid3">
+        <div class="field"><label>Estado</label><select class="input" id="dEst">${Object.entries(FAC_EST).map(([k, v]) => `<option value="${k}" ${f.estado === k ? 'selected' : ''}>${f.tipo === 'recibida' ? v.lr : v.l}</option>`).join('')}</select></div>
+        <div class="field"><label>Fecha de pago</label><input class="input" type="date" id="dFP" value="${esc(f.fechaPago || '')}"></div>
+        <div class="field"><label>Forma de pago</label><select class="input" id="dFoP">${catList('formasPago').map(x => `<option ${f.formaPago === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+        <div class="field span3"><label>Notas</label><input class="input" id="dNot" value="${esc(f.notas || '')}"></div>
+      </div>
+      <div class="fac-docs">${(f.docs || []).map(x => `<a class="mail-att" href="/api/docs/${esc(x.id)}">${ICON.download}<span><b>${esc(x.nombre)}</b></span></a>`).join('')}${proj ? `<button type="button" class="btn sm ghost" data-gop>${ICON.folder}Ver proyecto</button>` : ''}${bud ? `<button type="button" class="btn sm ghost" data-gob>${ICON.cash}Ver presupuesto</button>` : ''}</div>`,
+    foot: `<button class="btn danger left" data-del>${ICON.trash}Eliminar</button><button class="btn" data-x>Cancelar</button><button class="btn primary" data-save>${ICON.save}Guardar</button>`,
+    onMount(m, close) {
+      $$('[data-for]', m).forEach(x => { x.style.display = x.dataset.for !== f.tipo ? 'none' : ''; });
+      bindLinkFields(m, ed);
+      m.querySelector('#dEst').onchange = e => { if (e.target.value === 'pagada' && !m.querySelector('#dFP').value) m.querySelector('#dFP').value = todayISO(); };
+      const gp = m.querySelector('[data-gop]'); if (gp) gp.onclick = () => { close(); openProject(proj.id); };
+      const gb = m.querySelector('[data-gob]'); if (gb) gb.onclick = () => { close(); openBudget(bud.id); };
+      m.querySelector('[data-del]').onclick = async () => { if (!await confirmDialog('Eliminar factura', 'Se quita del registro de Cobranza y de Fiscal. Los archivos originales se conservan.')) return; Store.data.facturas = Store.data.facturas.filter(x => x.id !== f.id); Store.save('facturas'); close(); drawFacturas(); };
+      m.querySelector('[data-save]').onclick = () => {
+        Object.assign(f, { clienteId: ed.clienteId, proveedorId: ed.proveedorId, proyectoId: ed.proyectoId, presupuestoId: ed.presupuestoId, estado: m.querySelector('#dEst').value, formaPago: m.querySelector('#dFoP').value, notas: m.querySelector('#dNot').value.trim(), modificado: new Date().toISOString() });
+        f.fechaPago = f.estado === 'pagada' ? (m.querySelector('#dFP').value || todayISO()) : '';
+        Store.save('facturas'); close(); drawFacturas(); toast('Factura actualizada');
+      };
+    }
+  });
+}
+const FAC_TABS = [
+  { k: 'pendientes', l: 'Pendientes', f: x => x.estado === 'pendiente' && x.tipo === 'emitida' },
+  { k: 'pagadas', l: 'Liquidadas', f: x => x.estado === 'pagada' && x.tipo === 'emitida' },
+  { k: 'porligar', l: 'Por ligar', f: x => !facLinked(x) && x.estado !== 'cancelada' },
+  { k: 'recibidas', l: 'De proveedores', f: x => x.tipo === 'recibida' },
+  { k: 'todas', l: 'Todas', f: () => true }
+];
+function drawFacturas() {
+  const el = $('#cbFact'); if (!el) return;
+  const all = Store.data.facturas || [];
+  const em = all.filter(x => x.tipo === 'emitida' && x.moneda !== 'USD');
+  const pend = em.filter(x => x.estado === 'pendiente'), ym = todayISO().slice(0, 7);
+  const cob = em.filter(x => x.estado === 'pagada' && String(x.fechaPago).startsWith(ym));
+  const nl = all.filter(x => !facLinked(x) && x.estado !== 'cancelada').length, porPagar = all.filter(x => x.tipo === 'recibida' && x.estado === 'pendiente');
+  const q = normKey(FB.q), tab = FAC_TABS.find(t => t.k === FB.tab) || FAC_TABS[0];
+  const list = all.filter(tab.f).filter(x => !q || normKey([x.folio, x.uuid, x.nombre, x.rfc, x.notas].join(' ')).includes(q)).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const linkTxt = x => { const p = x.proyectoId && projById(x.proyectoId), b = x.presupuestoId && Store.data.presupuestos.find(y => y.id === x.presupuestoId), pv = x.proveedorId && (Store.data.proveedores || []).find(y => y.id === x.proveedorId), c = x.clienteId && Store.data.clientes.find(y => y.id === x.clienteId);
+    const parts = [p && p.codigo, b && b.folio, !p && !b && (c ? c.nombre : pv ? pv.nombre : '')].filter(Boolean); return parts.length ? `<small>${esc(parts.join(' · '))}</small>` : '<span class="chip warn">Por ligar</span>'; };
+  el.innerHTML = `
+    <div class="kpis cob-kpis">
+      <div class="kpi"><small>Facturado por cobrar</small><b>$${AGIS_money(pend.reduce((a, x) => a + (+x.total || 0), 0))}</b><span>${pend.length} factura${pend.length === 1 ? '' : 's'}</span></div>
+      <div class="kpi"><small>Cobrado este mes</small><b>$${AGIS_money(cob.reduce((a, x) => a + (+x.total || 0), 0))}</b><span>${cob.length} liquidada${cob.length === 1 ? '' : 's'}</span></div>
+      <div class="kpi ${nl ? 'warn' : ''}"><small>Por ligar</small><b>${nl}</b><span>sin cliente / proyecto</span></div>
+      <div class="kpi"><small>Proveedores por pagar</small><b>$${AGIS_money(porPagar.reduce((a, x) => a + (+x.total || 0), 0))}</b><span>${porPagar.length} factura${porPagar.length === 1 ? '' : 's'}</span></div>
+    </div>
+    <div class="tabs">${FAC_TABS.map(t => `<button class="tab ${FB.tab === t.k ? 'on' : ''}" data-fbtab="${t.k}">${t.l} <span class="badge">${pad(all.filter(t.f).length)}</span></button>`).join('')}</div>
+    <div class="toolbar"><div class="search">${ICON.search}<input class="input" id="fbSearch" placeholder="Buscar folio, UUID, cliente, RFC…" value="${esc(FB.q)}"></div></div>
+    <div class="table-wrap"><div class="table-scroll"><table class="dt cob-dt"><thead><tr><th>Fecha</th><th>Folio</th><th>Cliente / proveedor</th><th>Liga</th><th>Método</th><th class="r">Total</th><th>Estado</th><th>Pagada</th><th></th></tr></thead><tbody>
+    ${list.length ? list.map(x => `<tr class="cob-row" data-fid="${esc(x.id)}">
+      <td>${fmtDate(x.fecha)}</td><td><div class="cname"><b class="mono">${esc(x.folio || '—')}</b><small>${x.tipo === 'recibida' ? 'Recibida' : 'Emitida'}${x.uuid ? ' · ' + esc(x.uuid.slice(0, 8)) : ''}</small></div></td>
+      <td><div class="cname"><b>${esc(x.nombre || '—')}</b><small class="mono">${esc(x.rfc || '')}</small></div></td>
+      <td>${linkTxt(x)}</td><td>${x.metodo ? `<span class="chip">${esc(x.metodo)}</span>` : '—'}</td>
+      <td class="r money"><b>$${AGIS_money(x.total)}</b>${x.moneda === 'USD' ? ' <small>USD</small>' : ''}</td>
+      <td><button class="fac-est" data-fquick="${esc(x.id)}" title="Cambiar estado">${facPill(x)}</button></td><td>${x.fechaPago ? fmtDate(x.fechaPago) : '—'}</td>
+      <td class="act"><span class="icon-btn">${ICON.right}</span></td></tr>`).join('')
+      : `<tr><td colspan="9"><div class="empty" style="padding:30px">${ICON.receipt}<b>Sin facturas en esta vista</b>Usa «Importar facturas» para subir los XML/PDF.</div></td></tr>`}
+    </tbody></table></div></div>`;
+  const s = el.querySelector('#fbSearch'); s.addEventListener('input', debounce(e => { FB.q = e.target.value; drawFacturas(); setTimeout(() => { const n = $('#fbSearch'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 250));
+}
+function facQuick(btn) {
+  const f = Store.data.facturas.find(x => x.id === btn.dataset.fquick); if (!f) return;
+  const set = (estado, fecha) => { f.estado = estado; f.fechaPago = estado === 'pagada' ? fecha || todayISO() : ''; f.modificado = new Date().toISOString(); Store.save('facturas'); drawFacturas(); };
+  popMenu(btn, [
+    { label: f.tipo === 'recibida' ? 'Marcar pagada hoy' : 'Marcar liquidada hoy', icon: 'check', run: () => set('pagada', todayISO()) },
+    { label: 'Liquidada en otra fecha…', icon: 'edit', run: () => promptDialog('Fecha de pago', 'AAAA-MM-DD', todayISO()).then(v => { if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) set('pagada', v); else if (v) toast('Usa el formato AAAA-MM-DD', true); }) },
+    { label: 'Pendiente', icon: 'reset', run: () => set('pendiente') },
+    '-',
+    { label: 'Cancelada', icon: 'x', run: () => set('cancelada') }
+  ]);
+}
+/* Movimientos automáticos para Fiscal desde facturas liquidadas (sin duplicar los pagos de Cobranza ni capturas manuales) */
+function facturaMovs() {
+  const manual = new Set((Store.data.movimientos || []).flatMap(m => [String(m.folio || '').toUpperCase()]).filter(Boolean));
+  return (Store.data.facturas || []).filter(f => f.estado === 'pagada' && f.fechaPago).filter(f => {
+    if (f.tipo === 'emitida' && f.presupuestoId) { const c = (Store.data.cobranza || {})[f.presupuestoId]; if (c && (c.pagos || []).length) return false; }
+    return !(f.uuid && manual.has(f.uuid.toUpperCase())) && !(f.folio && manual.has(String(f.folio).toUpperCase()));
+  }).map(f => ({ id: 'fac:' + f.id, auto: true, autoFac: f.id, tipo: f.tipo === 'recibida' ? 'egreso' : 'ingreso', fecha: f.fechaPago, categoria: f.tipo === 'recibida' ? 'Factura de proveedor' : 'Factura cobrada', descripcion: `Factura ${f.folio || ''}`.trim() + (f.conceptos && f.conceptos[0] ? ' · ' + f.conceptos[0].slice(0, 60) : ''), contraparte: f.nombre, clienteId: f.clienteId, proyectoId: f.proyectoId,
+    total: f.tipo === 'recibida' ? +f.total || 0 : +f.total || 0, facturado: true, subtotal: +f.subtotal || 0, iva: +f.iva || 0, retIsr: f.tipo === 'emitida' ? +f.retIsr || 0 : 0, retIva: +f.retIva || 0, cuenta: catList('cuentas')[0], forma: f.formaPago || '', folio: f.uuid || f.folio, moneda: f.moneda || 'MXN' }));
 }
 
 /* ================= Módulos en construcción ================= */
@@ -3653,7 +4049,7 @@ const NOTAS_DEFAULT = cur => [
 const OBS_DEFAULT = NOTAS_DEFAULT('MXN');
 const SECCIONES_DEF = ['Impresión 3D', 'Grabado láser', 'Corte láser', 'DTF UV', 'Promocionales', 'Modelado / diseño', 'Envío'];
 const UNIDADES_DEF = ['PZA', 'LOTE', 'SERVICIO', 'HORA', 'JUEGO', 'KIT'];
-const CAT_DEF = { secciones: SECCIONES_DEF, unidades: UNIDADES_DEF, sistemas: SERVICIOS, catIngreso: CAT_ING_DEF, catEgreso: CAT_EGR_DEF, cuentas: CUENTAS_DEF };
+const CAT_DEF = { secciones: SECCIONES_DEF, unidades: UNIDADES_DEF, sistemas: SERVICIOS, catIngreso: CAT_ING_DEF, catEgreso: CAT_EGR_DEF, cuentas: CUENTAS_DEF, formasPago: FORMAS_PAGO };
 const catList = k => (Store.data.catalogos && Array.isArray(Store.data.catalogos[k]) ? Store.data.catalogos[k] : CAT_DEF[k] || []);
 const r2 = n => Math.round((+n || 0) * 100) / 100;
 const addDaysISO = (iso, n) => { const d = parseD(iso) || new Date(); d.setDate(d.getDate() + n); return localISO(d); };

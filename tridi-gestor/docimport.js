@@ -55,7 +55,7 @@ module.exports = function createImporter(store, getDb) {
     const comp = tag('Comprobante');
     if (!comp) throw Object.assign(new Error('El XML no es un CFDI'), { code: 400 });
     const em = tag('Emisor') || {}, re = tag('Receptor') || {}, tfd = tag('TimbreFiscalDigital') || {};
-    const conceptos = [...xml.matchAll(/<(?:\w+:)?Concepto\b[^>]*>/gi)].map(m => attrs(m[0])).map(c => ({ descripcion: c.Descripcion || '', cantidad: num(c.Cantidad), unidad: c.Unidad || c.ClaveUnidad || '', precio: num(c.ValorUnitario), importe: num(c.Importe) }));
+    const conceptos = [...xml.matchAll(/<(?:\w+:)?Concepto\b[^>]*>/gi)].map(m => attrs(m[0])).map(c => ({ descripcion: c.Descripcion || '', cantidad: num(c.Cantidad), unidad: c.Unidad || c.ClaveUnidad || '', precio: num(c.ValorUnitario), importe: num(c.Importe), identificador: c.NoIdentificacion || '' }));
     const ivaTras = [...xml.matchAll(/<(?:\w+:)?Impuestos\b[^>]*TotalImpuestosTrasladados="([\d.]+)"/gi)].map(m => +m[1]);
     const retIsr = [...xml.matchAll(/<(?:\w+:)?Retencion\b[^>]*Impuesto="001"[^>]*Importe="([\d.]+)"/gi)].map(m => +m[1]);
     let cli = re, rol = 'receptor';
@@ -170,16 +170,28 @@ module.exports = function createImporter(store, getDb) {
   const LABELS = { nombre: 'Nombre del cliente', rfc: 'RFC', razonSocial: 'Razón social', regimen: 'Régimen fiscal', cp: 'C.P. fiscal', email: 'Correo', telefono: 'Teléfono' };
   const PLABELS = { nombre: 'Nombre del proyecto', fecha: 'Fecha del documento', total: 'Monto total', direccion: 'Dirección / lugar' };
 
+  /* Identificadores que pueden ligar el documento a un presupuesto o proyecto del Gestor */
+  function refsOf(text, r) {
+    const out = new Set();
+    (String(text).toUpperCase().match(/\b[A-Z]{2,4}-\d{6}-PRO-\d{3}(?:-REV\.?\s?\d+)?\b/g) || []).forEach(x => out.add(x.replace(/\s/g, '')));
+    (String(text).toUpperCase().match(/\bPRY-\d{6}-\d{2,3}\b/g) || []).forEach(x => out.add(x));
+    (r.conceptos || []).forEach(c => { if (c.identificador) out.add(String(c.identificador).toUpperCase()); });
+    if (r.doc.folio) out.add(String(r.doc.folio).toUpperCase());
+    return [...out];
+  }
   async function analyze(buf, filename) {
     const isXml = /\.xml$/i.test(filename) || /^\s*(<\?xml|<cfdi:)/.test(buf.slice(0, 200).toString('utf8'));
     let r;
-    if (isXml) r = parseXml(buf.toString('utf8'));
+    let rawText = '';
+    if (isXml) { rawText = buf.toString('utf8'); r = parseXml(rawText); }
     else {
       if (buf.slice(0, 5).toString() !== '%PDF-') throw Object.assign(new Error('El archivo no es un PDF ni un XML'), { code: 400 });
       const lines = await pdfLines(buf);
       if (lines.join('').replace(/\s/g, '').length < 40) throw Object.assign(new Error('El PDF no tiene texto (parece escaneado). Sube el PDF original o el XML de la factura.'), { code: 422 });
+      rawText = lines.join('\n');
       r = parseText(lines);
     }
+    r.refs = refsOf(rawText, r);
     if (!r.proyecto.nombre) r.proyecto.nombre = r.conceptos[0] ? r.conceptos[0].descripcion.split(/[.,;]/)[0].slice(0, 70) : '';
     r.match = matchClient(r.cliente);
     r.faltanCliente = Object.keys(LABELS).filter(k => !r.cliente[k]).map(k => LABELS[k]);
@@ -192,8 +204,9 @@ module.exports = function createImporter(store, getDb) {
   }
 
   async function handle(req, res, p, method, me, h) {
+    const allowed = ['proyectos', 'cobranza', 'fiscal'].some(x => h.can(me, x));
     if (p === '/api/import/doc' && method === 'POST') {
-      if (!h.can(me, 'proyectos')) { h.send(req, res, 403, { error: 'Sin permiso para Proyectos' }); return true; }
+      if (!allowed) { h.send(req, res, 403, { error: 'Sin permiso' }); return true; }
       const b = (await h.readBody(req, 16 * 1024 * 1024)) || {};
       const buf = Buffer.from(String(b.data || ''), 'base64');
       if (!buf.length) { h.send(req, res, 400, { error: 'Archivo vacío' }); return true; }
@@ -204,7 +217,7 @@ module.exports = function createImporter(store, getDb) {
     }
     const m = /^\/api\/docs\/([a-f0-9]{18})$/.exec(p);
     if (m && method === 'GET') {
-      if (!h.can(me, 'proyectos')) { h.send(req, res, 403, { error: 'Sin permiso' }); return true; }
+      if (!allowed) { h.send(req, res, 403, { error: 'Sin permiso' }); return true; }
       const d = store.get('doc:' + m[1], null);
       if (!d) { h.send(req, res, 404, { error: 'Documento no encontrado' }); return true; }
       const buf = Buffer.from(d.data, 'base64');
