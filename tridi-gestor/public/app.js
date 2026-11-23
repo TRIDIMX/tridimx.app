@@ -4153,7 +4153,7 @@ function renderPresupuesto(stage) {
         <div class="grid2">
           <div class="field span2 tq-row1">
             <div class="field"><label>Folio</label><div style="display:flex;gap:6px"><input class="input mono" data-b="folio" placeholder="DW-111126-PRO-001-Rev.0"><button class="icon-btn" data-act="bfolio" title="Sugerir folio" style="height:42px;width:42px;border:1px solid var(--line);flex:none">${ICON.wand}</button></div></div>
-            <div class="field"><label>Prefijo <small class="meta-line">(opcional)</small></label><input class="input mono" data-b="prefijo" maxlength="4" placeholder="Auto"></div>
+            <div class="field"><label title="Opcional: iniciales del folio">Prefijo</label><input class="input mono" data-b="prefijo" maxlength="4" placeholder="Auto"></div>
             <div class="field"><label>Moneda</label><div class="seg" id="curSeg"><button type="button" data-cur="MXN">Pesos (MXN)</button><button type="button" data-cur="USD">Dólares (USD)</button></div></div>
           </div>
           <div class="field"><label>Cliente <span class="req">*</span></label><select class="input" data-b="clienteId"><option value="">Seleccionar cliente…</option>${clientes.map(c => `<option value="${esc(c.id)}">${esc(clientLabel(c))}</option>`).join('')}</select></div>
@@ -4256,7 +4256,7 @@ function drawParts() {
     const imp = r2((+p.cantidad || 0) * (+p.precio || 0));
     return `<div class="part tq-part">
       <span class="part-code mono">${String(i + 1).padStart(3, '0')}</span>
-      <span class="part-con">${esc(p.concepto)}${p.nota ? `<small class="part-int">${esc(p.nota)}</small>` : ''}${p.costo !== undefined ? `<small class="part-int">${ICON.lock.replace('width="20" height="20"', 'width="11" height="11"')} Costo ${AGIS_money(p.costo)} · M.O. ${AGIS_money(p.manoObra)} · Ind. ${+p.indirectos || 0}% · Margen ${+p.margen || 0}%</small>` : ''}</span>
+      <span class="part-con">${esc(p.concepto)}${p.nota ? `<small class="part-int">${esc(p.nota)}</small>` : ''}${p.costo !== undefined ? `<small class="part-int">${ICON.lock.replace('width="20" height="20"', 'width="11" height="11"')} ${p.modo === 'directo' ? `Precio directo${(+p.costo || +p.manoObra) ? ` · Costo ${AGIS_money((+p.costo || 0) + (+p.manoObra || 0))} · margen real ${(+p.margen || 0).toFixed(2)}%` : ' · sin costo capturado'}` : `Costo ${AGIS_money(p.costo)} · M.O. ${AGIS_money(p.manoObra)} · Ind. ${+p.indirectos || 0}% · Margen ${+p.margen || 0}%`}</small>` : ''}</span>
       <span class="tq-thumb">${p.foto && p.foto.src ? `<img src="${p.foto.src}" alt="">` : ''}</span>
       <span class="part-q"><small>${esc(p.unidad || '')}</small>${AGIS_money(p.cantidad)} × ${AGIS_money(p.precio)}</span>
       <b class="part-imp">${AGIS_money(imp)}</b>
@@ -4276,13 +4276,16 @@ function drawBudgetTotals() {
   $('#tRet').textContent = '-' + curFmt(t.retIsr); $('#tRetRow').classList.toggle('hidden', !PB.personaMoral);
   $('#tLetras').textContent = AGIS_importeLetras(t.total, PB.moneda);
   $('#retNote').innerHTML = `${ICON.lock.replace('width="20" height="20"', 'width="11" height="11"')} El PDF incluye siempre la leyenda: <b>«Para personas morales favor de considerar la retención del ${RET_ISR_RESICO}% de ISR para RESICO»</b>.`;
-  const costo = PB.partidas.reduce((a, p) => a + (+p.cantidad || 0) * ((+p.costo || 0) + (+p.manoObra || 0)), 0);
+  const conCosto = PB.partidas.filter(p => (+p.costo || 0) + (+p.manoObra || 0) > 0), sinCosto = PB.partidas.length - conCosto.length;
+  const costo = conCosto.reduce((a, p) => a + (+p.cantidad || 0) * ((+p.costo || 0) + (+p.manoObra || 0)), 0);
+  const ventaCC = conCosto.reduce((a, p) => a + r2((+p.cantidad || 0) * (+p.precio || 0)), 0);
   const hasInt = PB.partidas.some(p => p.costo !== undefined);
-  const util = t.subtotal - costo;
+  const util = ventaCC - costo;
   $('#tInt').innerHTML = hasInt ? `<div class="int-h">${ICON.lock.replace('width="20" height="20"', 'width="12" height="12"')} Interno · no se imprime</div>
     <div><span>Costo directo (costo + M.O.)</span><b>${curFmt(costo)}</b></div>
     <div><span>Indirectos + utilidad</span><b>${curFmt(util)}</b></div>
-    <div><span>% sobre venta</span><b>${t.subtotal ? (util / t.subtotal * 100).toFixed(1) + '%' : '—'}</b></div>` : '';
+    <div><span>% sobre venta</span><b>${ventaCC ? (util / ventaCC * 100).toFixed(1) + '%' : '—'}</b></div>
+    ${sinCosto ? `<div><span class="meta-line">${sinCosto} concepto${sinCosto > 1 ? 's' : ''} con precio directo sin costo (no entra${sinCosto > 1 ? 'n' : ''} en este cálculo)</span></div>` : ''}` : '';
   $$('#curSeg button').forEach(b => b.classList.toggle('on', b.dataset.cur === PB.moneda));
 }
 /* Foto de referencia del concepto: se reduce a 900 px JPEG para no inflar la base */
@@ -4298,7 +4301,7 @@ function partForm(i) {
   const isNew = i === undefined;
   const prev = PB.partidas[PB.partidas.length - 1] || {};
   const p = isNew
-    ? { seccion: prev.seccion || catList('secciones')[0], concepto: '', unidad: 'PZA', cantidad: 1, costo: '', manoObra: '', indirectos: prev.indirectos ?? '', margen: prev.margen ?? '', nota: '', foto: null }
+    ? { seccion: prev.seccion || catList('secciones')[0], concepto: '', unidad: 'PZA', cantidad: 1, costo: '', manoObra: '', indirectos: prev.indirectos ?? '', margen: prev.margen ?? '', nota: '', foto: null, modo: prev.modo || 'costos' }
     : { ...PB.partidas[i] };
   if (!isNew && p.costo === undefined) { p.costo = p.precio; p.manoObra = 0; p.indirectos = 0; p.margen = 0; }
   let foto = p.foto || null;
@@ -4316,11 +4319,16 @@ function partForm(i) {
         <div class="tq-photo"><div class="tq-photo-prev" id="fPrev"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><label class="btn sm">${ICON.camera}<span>Elegir imagen</span><input type="file" accept="image/*" id="fIn" hidden></label><button type="button" class="btn sm ghost" id="fDel">${ICON.x}Quitar</button></div></div></div>
       <div class="field span2 internal-box">
         <div class="internal-h">${ICON.lock}<b>Uso interno</b><span class="meta-line">No aparece en la propuesta impresa</span></div>
+        <div class="seg pm-seg" id="pmSeg"><button type="button" data-pm="costos">Calcular desde costos</button><button type="button" data-pm="directo">Precio directo</button></div>
+        <div class="grid2 pm-direct" id="pmDirect">
+          <div class="field"><label>Precio unitario <span class="req">*</span></label><input class="input" name="precioD" type="number" min="0" step="0.01" inputmode="decimal" value="${p.precio ? esc(p.precio) : ''}" placeholder="0.00"></div>
+          <div class="field"><label>o importe total al que quieres llegar</label><input class="input" name="importeD" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>
+        </div>
         <div class="grid4">
-          <div class="field"><label>Costo unitario <span class="req">*</span></label><input class="input" name="costo" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(p.costo)}" placeholder="0.00"></div>
+          <div class="field"><label>Costo unitario <span class="req" id="costoReq">*</span></label><input class="input" name="costo" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(p.costo)}" placeholder="0.00"></div>
           <div class="field"><label>Mano de obra (unitaria)</label><input class="input" name="manoObra" type="number" min="0" step="0.01" inputmode="decimal" value="${esc(p.manoObra)}" placeholder="0.00"></div>
           <div class="field"><label>Indirectos %</label><input class="input" name="indirectos" type="number" min="0" step="0.1" inputmode="decimal" value="${esc(p.indirectos)}" placeholder="0"></div>
-          <div class="field"><label>Margen %</label><input class="input" name="margen" type="number" min="0" step="0.1" inputmode="decimal" value="${esc(p.margen)}" placeholder="0"></div>
+          <div class="field" id="margenF"><label>Margen %</label><input class="input" name="margen" type="number" min="0" step="0.1" inputmode="decimal" value="${esc(p.margen)}" placeholder="0"></div>
         </div>
         <p class="formula" id="pFormula"></p>
       </div>
@@ -4331,12 +4339,36 @@ function partForm(i) {
     onMount(m, close) {
       const f = n => m.querySelector(`[name=${n}]`);
       const vals = () => ({ costo: parseFloat(f('costo').value) || 0, manoObra: parseFloat(f('manoObra').value) || 0, indirectos: parseFloat(f('indirectos').value) || 0, margen: parseFloat(f('margen').value) || 0 });
+      let modo = p.modo === 'directo' ? 'directo' : 'costos';
+      const qty = () => parseFloat(f('cantidad').value) || 0;
+      const baseOf = v => (v.costo + v.manoObra) * (1 + v.indirectos / 100);
+      /* margen exacto que lleva del costo al precio indicado */
+      const margenReal = (v, pu) => { const b = baseOf(v); return b > 0 ? Math.round((pu / b - 1) * 1e4) / 100 : null; };
+      const priceNow = () => modo === 'directo' ? r2(parseFloat(f('precioD').value) || 0) : calcPU(vals());
       const upd = () => {
-        const v = vals(), pu = calcPU(v), cd = v.costo + v.manoObra, conInd = r2(cd * (1 + v.indirectos / 100));
+        const v = vals(), pu = priceNow(), cd = v.costo + v.manoObra, conInd = r2(baseOf(v));
         m.querySelector('#puPrev').textContent = curFmt(pu);
-        m.querySelector('#impPrev').textContent = curFmt((parseFloat(f('cantidad').value) || 0) * pu);
-        m.querySelector('#pFormula').innerHTML = `(${AGIS_money(v.costo)} + ${AGIS_money(v.manoObra)}) = <b>${AGIS_money(cd)}</b> · +${v.indirectos}% indirectos = <b>${AGIS_money(conInd)}</b> · +${v.margen}% margen = <b>${AGIS_money(pu)}</b>`;
+        m.querySelector('#impPrev').textContent = curFmt(qty() * pu);
+        if (modo === 'directo') {
+          const mr = margenReal(v, pu);
+          m.querySelector('#pFormula').innerHTML = mr === null ? 'Captura el costo (opcional) para ver el margen real de este precio.' : `Costo con indirectos <b>${AGIS_money(conInd)}</b> → precio <b>${AGIS_money(pu)}</b> = margen real <b class="${mr < 0 ? 'neg' : ''}">${mr.toFixed(2)}%</b> · utilidad <b>${AGIS_money(r2(pu - conInd))}</b> por ${esc(f('unidad').value || 'unidad').toLowerCase()} · <b>${AGIS_money(r2((pu - conInd) * qty()))}</b> en total`;
+        } else m.querySelector('#pFormula').innerHTML = `(${AGIS_money(v.costo)} + ${AGIS_money(v.manoObra)}) = <b>${AGIS_money(cd)}</b> · +${v.indirectos}% indirectos = <b>${AGIS_money(conInd)}</b> · +${v.margen}% margen = <b>${AGIS_money(pu)}</b>`;
       };
+      const setModo = k => {
+        if (k === 'directo' && modo === 'costos' && !f('precioD').value) { const pu = calcPU(vals()); if (pu) f('precioD').value = pu.toFixed(2); }
+        if (k === 'costos' && modo === 'directo') { const mr = margenReal(vals(), priceNow()); if (mr !== null) f('margen').value = mr; }
+        modo = k;
+        $$('#pmSeg button', m).forEach(b => b.classList.toggle('on', b.dataset.pm === modo));
+        m.querySelector('#pmDirect').hidden = modo !== 'directo';
+        m.querySelector('#margenF').style.display = modo === 'directo' ? 'none' : '';
+        m.querySelector('#costoReq').hidden = modo === 'directo';
+        f('importeD').value = modo === 'directo' && f('precioD').value ? r2((parseFloat(f('precioD').value) || 0) * qty()).toFixed(2) : '';
+        upd();
+      };
+      m.querySelector('#pmSeg').onclick = e => { const b = e.target.closest('[data-pm]'); if (b) setModo(b.dataset.pm); };
+      f('precioD').addEventListener('input', () => { f('importeD').value = f('precioD').value ? r2((parseFloat(f('precioD').value) || 0) * qty()).toFixed(2) : ''; upd(); });
+      f('importeD').addEventListener('input', () => { const t = parseFloat(f('importeD').value) || 0, q = qty(); f('precioD').value = t && q ? (Math.round(t / q * 100) / 100).toFixed(2) : ''; upd(); });
+      f('cantidad').addEventListener('input', () => { if (modo === 'directo' && f('importeD').value && document.activeElement !== f('precioD')) { const t = parseFloat(f('importeD').value) || 0, q = qty(); if (q) f('precioD').value = (Math.round(t / q * 100) / 100).toFixed(2); } });
       const drawFoto = () => { m.querySelector('#fPrev').innerHTML = foto && foto.src ? `<img src="${foto.src}" alt="">` : `<span>${ICON.camera}</span>`; m.querySelector('#fDel').hidden = !foto; };
       drawFoto();
       m.querySelector('#fIn').addEventListener('change', async e => {
@@ -4345,7 +4377,7 @@ function partForm(i) {
         e.target.value = '';
       });
       m.querySelector('#fDel').onclick = () => { foto = null; drawFoto(); };
-      ['cantidad', 'costo', 'manoObra', 'indirectos', 'margen'].forEach(n => f(n).addEventListener('input', upd)); upd();
+      ['cantidad', 'costo', 'manoObra', 'indirectos', 'margen'].forEach(n => f(n).addEventListener('input', upd)); setModo(modo);
       m.addEventListener('click', e => {
         const g = e.target.closest('[data-cat]'); if (!g) return;
         const key = g.dataset.cat, sel = f(key === 'secciones' ? 'seccion' : 'unidad'), cur = sel.value;
@@ -4356,10 +4388,13 @@ function partForm(i) {
         let bad = null;
         if (!con) bad = bad || f('concepto');
         if (!(q > 0)) bad = bad || f('cantidad');
-        if (f('costo').value === '' || v.costo < 0) bad = bad || f('costo');
+        if (modo === 'costos' && (f('costo').value === '' || v.costo < 0)) bad = bad || f('costo');
+        if (modo === 'directo' && !(priceNow() > 0)) bad = bad || f('precioD');
+        if (v.costo < 0) bad = bad || f('costo');
         if (v.manoObra < 0) bad = bad || f('manoObra');
         if (bad) { bad.classList.add('invalid'); bad.focus(); return; }
-        const rec = { seccion: f('seccion').value, concepto: con, unidad: f('unidad').value, cantidad: q, nota: f('nota').value.trim(), foto, ...v, precio: calcPU(v) };
+        if (modo === 'directo') { const mr = margenReal(v, priceNow()); v.margen = mr === null ? 0 : mr; }
+        const rec = { seccion: f('seccion').value, concepto: con, unidad: f('unidad').value, cantidad: q, nota: f('nota').value.trim(), foto, ...v, modo, precio: priceNow() };
         if (isNew) PB.partidas.push({ id: uid(), ...rec }); else PB.partidas[i] = { ...PB.partidas[i], ...rec };
         drawParts(); saveBudgetDraft(); close();
       };

@@ -1132,3 +1132,7 @@ a.plink{text-decoration:none;color:inherit}
 .fac-mini{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
 .fac-mini .chip svg{vertical-align:-1px}
 .grid3 .span3{grid-column:1/-1}
+/* ---------- v6.6: precio directo ---------- */
+.pm-seg{margin:8px 0 12px}
+.pm-direct{margin-bottom:6px}
+.formula b.neg{color:var(--bad)}

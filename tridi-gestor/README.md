@@ -1,4 +1,11 @@
-# TRIDI MX · Gestor (v6.5)
+# TRIDI MX · Gestor (v6.6)
+
+## Novedades v6.6
+- **Presupuesto · Precio directo**: en cada concepto se elige «Calcular desde costos» (como antes) o «Precio directo».
+  En precio directo se escribe el precio unitario o el importe total al que se quiere llegar; si se captura el costo,
+  muestra el margen real exacto y la utilidad. El costo es opcional en este modo.
+
+# v6.5
 
 ## Novedades v6.5
 - **Clientes**: nuevo subtítulo; teléfonos con liga a WhatsApp (wa.me, +52); columna opcional «Razón social».
